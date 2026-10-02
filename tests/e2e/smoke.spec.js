@@ -20,6 +20,15 @@ const API = process.env.E2E_BASE_URL || `http://127.0.0.1:${process.env.API_PORT
 const ADMIN_TOKEN = process.env.ADMIN_TOKEN || '';
 const WRITE_HEADERS = ADMIN_TOKEN ? { 'X-Admin-Token': ADMIN_TOKEN } : {};
 
+// Tests that change server state (fault injection, simulator reset, a ledger edit) run
+// against the local or CI stack, which is throwaway. Against a remote deployment (an
+// E2E_BASE_URL that is not localhost) they are skipped unless E2E_ALLOW_LIVE_WRITES=1:
+// a live demo's ledger, alerts and scenarios belong to the people using it.
+const IS_REMOTE = Boolean(process.env.E2E_BASE_URL)
+  && !/^https?:\/\/(localhost|127\.0\.0\.1|\[::1\])(:\d+)?(\/|$)/.test(process.env.E2E_BASE_URL);
+const ALLOW_WRITES = !IS_REMOTE || process.env.E2E_ALLOW_LIVE_WRITES === '1';
+const LIVE_WRITES_SKIPPED = 'changes server state on a remote deployment; set E2E_ALLOW_LIVE_WRITES=1 to run it';
+
 // Module id -> text that only THAT module's panel renders. Legacy panels are matched on
 // their own headings; modules rebuilt on the design system on their page title. The tour
 // asserts the marker so it catches "the sidebar switched but the panel did not", and it
@@ -179,6 +188,7 @@ test('every module opens cleanly', async ({ page }) => {
 });
 
 test('an injected generator failure on bharati shows up as a bharati alert', async ({ page, request }) => {
+  test.skip(!ALLOW_WRITES, LIVE_WRITES_SKIPPED);
   const { consoleErrors, failedRequests } = watchForProblems(page);
 
   await page.goto('/');
@@ -193,27 +203,31 @@ test('an injected generator failure on bharati shows up as a bharati alert', asy
   // stack requires one.
   const inject = await request.post(`${API}/api/sim/inject/generator_failure?stationId=bharati`,
                                     { headers: WRITE_HEADERS });
-  expect(inject.ok(), await inject.text()).toBeTruthy();
-  if (loggedIn) {
-    // The acknowledge button is only enabled for a signed-in operator.
-    expect(ADMIN_TOKEN).not.toBe('');
+  try {
+    expect(inject.ok(), await inject.text()).toBeTruthy();
+    if (loggedIn) {
+      // The acknowledge button is only enabled for a signed-in operator.
+      expect(ADMIN_TOKEN).not.toBe('');
+    }
+
+    // The backend tick (2 s) evaluates thresholds and pushes the alert over the WebSocket.
+    const pill = page.getByTestId('alerts-pill');
+    await expect
+      .poll(async () => Number(await pill.getAttribute('data-alert-count')), { timeout: 10_000 })
+      .toBeGreaterThan(0);
+
+    // It is bharati's alert, and the backend agrees.
+    const alerts = await (await request.get(`${API}/api/alerts?stationId=bharati`)).json();
+    expect(alerts.stationId).toBe('bharati');
+    expect(alerts.activeAlerts.length).toBeGreaterThan(0);
+
+    await page.getByTestId('alerts-pill').click();
+    await expect(page.getByTestId('alert-drawer')).toBeVisible();
+  } finally {
+    // Always clear the injection, pass or fail.
+    const reset = await request.post(`${API}/api/sim/reset?stationId=bharati`, { headers: WRITE_HEADERS });
+    expect(reset.ok(), `bharati was left with an injected scenario: ${await reset.text()}`).toBeTruthy();
   }
-
-  // The backend tick (2 s) evaluates thresholds and pushes the alert over the WebSocket.
-  const pill = page.getByTestId('alerts-pill');
-  await expect
-    .poll(async () => Number(await pill.getAttribute('data-alert-count')), { timeout: 10_000 })
-    .toBeGreaterThan(0);
-
-  // It is bharati's alert, and the backend agrees.
-  const alerts = await (await request.get(`${API}/api/alerts?stationId=bharati`)).json();
-  expect(alerts.stationId).toBe('bharati');
-  expect(alerts.activeAlerts.length).toBeGreaterThan(0);
-
-  await page.getByTestId('alerts-pill').click();
-  await expect(page.getByTestId('alert-drawer')).toBeVisible();
-
-  await request.post(`${API}/api/sim/reset?stationId=bharati`, { headers: WRITE_HEADERS });
   expect(consoleErrors, 'console errors during alert injection').toEqual([]);
   expect(failedRequests, 'failed requests during alert injection').toEqual([]);
 });
@@ -254,11 +268,14 @@ test('viewing needs no login, and writes are refused without one', async ({ page
   expect(denied.status()).toBe(401);
   // The authenticated case proxies to the simulator, whose readiness is independent of
   // the backend's, so a momentary 503 here is startup timing rather than an auth failure.
-  await expect
-    .poll(async () => (await request.post(`${API}/api/sim/reset?stationId=maitri`,
-                                          { headers: WRITE_HEADERS })).status(),
-          { timeout: 30_000, message: 'authenticated write never succeeded' })
-    .toBe(200);
+  // A real write, so not against a live deployment: it would clear anyone's demo scenario.
+  if (ALLOW_WRITES) {
+    await expect
+      .poll(async () => (await request.post(`${API}/api/sim/reset?stationId=maitri`,
+                                            { headers: WRITE_HEADERS })).status(),
+            { timeout: 30_000, message: 'authenticated write never succeeded' })
+      .toBe(200);
+  }
 
   // Signing in enables the controls again (Save stays disabled until something changes).
   await operatorLogin(page);
@@ -331,7 +348,7 @@ test('the building panel shows live readings from telemetry (audit F2)', async (
 });
 
 
-test('operate and analyse pages: read-only what-if, twin inspector, and an audited ledger edit', async ({ page }) => {
+test('operate and analyse pages: read-only what-if and the twin inspector', async ({ page }) => {
   const { consoleErrors, failedRequests } = watchForProblems(page);
   await page.goto('/');
   await expect(page.getByTestId('data-source-badge')).toHaveAttribute('data-source', /simulator|physics-fallback/);
@@ -351,23 +368,47 @@ test('operate and analyse pages: read-only what-if, twin inspector, and an audit
   await page.keyboard.press('Escape');
   await expect(page.getByTestId('twin-inspector')).toHaveCount(0);
 
-  // A ledger edit, signed in when the stack protects writes, lands in the audit log.
-  const loggedIn = await operatorLogin(page);
-  await openModule(page, 'logistics');
-  await page.getByTestId('ledger-edit-maitri-med').click();
-  const input = page.getByTestId('ledger-current');
-  const next = String(Number(await input.inputValue()) - 1);
-  await input.fill(next);
-  await page.getByTestId('ledger-save').click();
-  // Every state-changing action asks first.
-  await expect(page.getByTestId('confirm-dialog')).toContainText(/Write .* to the ledger/);
-  await page.getByTestId('confirm-ok').click();
-  await expect(page.getByTestId('toast')).toContainText(/Saved/);
-  await expect(page.getByTestId('logistics-history')).toContainText(`→ ${next}`);
-  expect(loggedIn || !ADMIN_TOKEN).toBe(true);
-
   expect(consoleErrors, 'console errors on operate/analyse pages').toEqual([]);
   expect(failedRequests, 'failed requests on operate/analyse pages').toEqual([]);
+});
+
+test('a ledger edit asks first, lands in the audit log, and is put back afterwards', async ({ page, request }) => {
+  test.skip(!ALLOW_WRITES, LIVE_WRITES_SKIPPED);
+  const { consoleErrors, failedRequests } = watchForProblems(page);
+  const ITEM = 'maitri-med';
+  const readItem = async () => (await (await request.get(`${API}/api/logistics?stationId=maitri`)).json())
+    .items.find((i) => i.id === ITEM);
+  const original = (await readItem()).current;
+
+  try {
+    await page.goto('/?module=logistics&station=maitri');
+    // Signed in when the stack protects writes.
+    const loggedIn = await operatorLogin(page);
+    expect(loggedIn || !ADMIN_TOKEN).toBe(true);
+    await page.getByTestId(`ledger-edit-${ITEM}`).click();
+    const input = page.getByTestId('ledger-current');
+    const next = String(original - 1);
+    await input.fill(next);
+    await page.getByTestId('ledger-save').click();
+    // Every state-changing action asks first.
+    await expect(page.getByTestId('confirm-dialog')).toContainText(/Write .* to the ledger/);
+    await page.getByTestId('confirm-ok').click();
+    await expect(page.getByTestId('toast')).toContainText(/Saved/);
+    await expect(page.getByTestId('logistics-history')).toContainText(`→ ${next}`);
+  } finally {
+    // Put the original value back, pass or fail, so no run leaves the ledger changed.
+    if ((await readItem()).current !== original) {
+      const res = await request.post(`${API}/api/logistics/update`, {
+        headers: WRITE_HEADERS,
+        data: { stationId: 'maitri', itemId: ITEM, current: original, updatedBy: 'e2e restore' },
+      });
+      expect(res.ok(), `could not restore ${ITEM}: ${await res.text()}`).toBeTruthy();
+    }
+    expect((await readItem()).current, `${ITEM} was not restored`).toBe(original);
+  }
+
+  expect(consoleErrors, 'console errors during the ledger edit').toEqual([]);
+  expect(failedRequests, 'failed requests during the ledger edit').toEqual([]);
 });
 
 test('command palette, keyboard shortcuts, URL state and the alert centre tabs', async ({ page }) => {

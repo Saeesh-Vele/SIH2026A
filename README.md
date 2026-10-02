@@ -268,7 +268,7 @@ This is demo-grade: one shared token, **no user accounts and no roles** — see
 | Python — ML | `pytest -m ml` | 7, needs `make setup-ml` (torch + chronos) |
 | Python — slow | `pytest -m slow` | 16, ERA5 walk-forward over the committed caches |
 | Frontend | `npm test` (Vitest + jsdom) | 124 |
-| End-to-end | `npm run test:e2e` (Playwright) | 12, starts the whole stack itself |
+| End-to-end | `npm run test:e2e` (Playwright) | 13, starts the whole stack itself |
 
 ```bash
 make test        # pytest + Vitest
@@ -281,6 +281,12 @@ CI runs on every push and pull request: ruff + pytest + coverage, lint + Vitest 
 on Node 20 and 22, the Playwright smoke test, and a gitleaks secret scan. A second
 workflow builds and publishes multi-arch (amd64 + arm64) images, after bringing the whole
 compose stack up and verifying it — including with the network blocked.
+
+To run the end-to-end suite against a deployment, set `E2E_BASE_URL` (and `ADMIN_TOKEN` to
+cover sign-in). Against anything other than localhost, the three tests that change server
+state are skipped: fault injection, a simulator reset and a ledger edit. Set
+`E2E_ALLOW_LIVE_WRITES=1` to run them anyway; each one puts back what it changed (reset in
+`finally`, and the ledger value restored and checked).
 
 `ruff format` is deliberately **not** enforced; it would reflow 43 of 57 files. Use
 `make format-check` to see what it would do.

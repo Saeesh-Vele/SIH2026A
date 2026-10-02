@@ -123,6 +123,9 @@
 - **E2E:** `npm run test:e2e` (Playwright). `playwright.config.js` starts backend → simulator
   → Vite itself, runs chromium with software WebGL, and writes to a throwaway `DB_PATH` so the
   committed demo database is never touched. It needs no secrets: `GROQ_API_KEY` is cleared.
+  With `E2E_BASE_URL` pointing at a non-localhost deployment, the tests that change server state
+  (fault injection, simulator reset, ledger edit) are skipped unless `E2E_ALLOW_LIVE_WRITES=1`;
+  they always undo their change in `finally`. Keep any new state-changing test behind the same guard.
 - `ruff check .` must exit 0. `ruff format` is **not** enforced — it would reflow 43 of 57 files;
   `make format-check` shows what it would do.
 - CI (`.github/workflows/ci.yml`) runs on every push to `main` and every PR: python (ruff +
