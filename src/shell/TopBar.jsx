@@ -1,7 +1,7 @@
 /* ═══════════════════════════════════════════════════════════════
    Aurora — the ONE top bar (v2: the status strip merged in).
 
-     desktop  logo · station switcher | source · link · alerts · events ··· telemetry time · demo · theme · Sign in
+     desktop  logo · station switcher | source · link · alerts · events ··· telemetry time · Aurora · search · help · demo · theme · Sign in
      tablet   ☰ logo · switcher | source · link · alerts · events (icons) ··· demo · theme · Sign in
      phone    ☰ switcher · source dot · alerts ··· Sign in · ⋮ (link, events, demo control, theme, telemetry time)
 
@@ -18,6 +18,7 @@ import HelpOutlineOutlined from '@mui/icons-material/HelpOutlineOutlined';
 import SearchOutlined from '@mui/icons-material/SearchOutlined';
 import LightModeOutlined from '@mui/icons-material/LightModeOutlined';
 import MenuOutlined from '@mui/icons-material/MenuOutlined';
+import MicNoneOutlined from '@mui/icons-material/MicNoneOutlined';
 import MoreVertOutlined from '@mui/icons-material/MoreVertOutlined';
 import NotificationsOutlined from '@mui/icons-material/NotificationsOutlined';
 import ScienceOutlined from '@mui/icons-material/ScienceOutlined';
@@ -81,6 +82,7 @@ export default function TopBar({
   telemetryBadge, isConnected, alertCount, criticalCount, updatedAt,
   onOpenLink, onOpenAlerts, onToggleTimeline, onOpenDemo, onOpenPalette, onOpenHelp, demoActive,
   onStartTour, pageTourLabel, onStartPageTour, signInOpen, onSignInOpenChange, onShare, onOpenAbout, onOpenWelcome, onOpenStories,
+  onOpenAssistant, assistantOpen,
 }) {
   const now = useNow(1000);
   const scheme = useSchemeToggle();
@@ -168,6 +170,14 @@ export default function TopBar({
           </Typography>
         )}
 
+        {/* Aurora assistant launcher: the panel itself is a lazy chunk. */}
+        <Hint title="Ask Aurora: voice or text (hold V to talk)">
+          <BarChip onClick={onOpenAssistant} aria-label="Ask Aurora, the assistant" aria-expanded={Boolean(assistantOpen)} data-testid="assistant-open" data-tour="assistant"
+            sx={(theme) => ({ color: theme.vars.palette.primary.main, ...(assistantOpen ? { backgroundColor: theme.vars.palette.action.selected } : {}) })}>
+            <MicNoneOutlined />
+            <Box component="span" sx={{ display: { xs: 'none', lg: 'inline' } }}>Aurora</Box>
+          </BarChip>
+        </Hint>
         <Hint title="Search and commands (⌘K / Ctrl+K)" sx={hideBelow('sm')}>
           <BarChip onClick={onOpenPalette} aria-label="Open the command palette" data-testid="palette-open" data-tour="command-palette"
             sx={{ bgcolor: 'transparent', border: 1, borderColor: 'divider' }}>

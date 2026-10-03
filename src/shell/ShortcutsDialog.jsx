@@ -13,6 +13,7 @@ export default function ShortcutsDialog({ open, onClose, onStartTour }) {
     [[MOD, 'K'], 'Command palette'],
     [['?'], 'This help'],
     [['Esc'], 'Close a dialog, drawer or menu'],
+    [['V'], 'Hold to talk to Aurora (release to send)'],
     ...Object.values(MODULES).map((m) => [['g', m.key], `Go to ${m.label}`]),
     [['g', NAV_ACTIONS.twinInspector.key], 'Open the Twin inspector'],
     [['A'], 'Overview 3D: Station / Antarctica view'],

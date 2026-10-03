@@ -5,7 +5,8 @@
    Throws during setup → onFatal → the 2D overview (StationScene.jsx).
    ═══════════════════════════════════════════════════════════════ */
 import { useEffect, useMemo, useRef, useState } from 'react';
-import { buildingList, sceneInfo, stationMeta } from '../data/stationConfig';
+import { buildingList, stationMeta } from '../data/stationConfig';
+import { sceneInfo } from '../data/stationConfigDetail';
 import { solarPosition } from '../lib/solar';
 import { useNow } from '../hooks/useNow';
 import { STATUS_LABEL } from '../ui/statusLabels';

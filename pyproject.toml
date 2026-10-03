@@ -95,7 +95,7 @@ select = [
 # simulator/ modules are imported flat (conftest.py adds it to sys.path), so ruff must
 # not mistake them for third-party packages.
 known-first-party = [
-    "alert_engine", "analytics_ai_engine", "anomaly_engine", "cascade", "chronos_forecaster",
+    "alert_engine", "analytics_ai_engine", "anomaly_engine", "assistant", "cascade", "chronos_forecaster",
     "config", "db", "decision_engine", "decision_scheduler", "forecast_engine", "ncpor_ingestor",
     "offline_explain", "physics_model", "simulator", "station_config", "station_store",
     "twin_inspector", "unified_backend", "units", "validation", "weather_data",

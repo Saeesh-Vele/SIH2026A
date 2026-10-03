@@ -55,6 +55,7 @@ from ncpor_sync import NcporSync
 from visits import VISITS
 
 import alert_engine
+import assistant
 import config as app_config
 import db
 import station_config
@@ -2202,6 +2203,192 @@ def get_ai_explanation(req: ExplainRequest):
     out.update({"station": sid, "reason": reason,
                 "sources": ["decision_engine"] if decision else ["telemetry_snapshot"]})
     return out
+
+# ═══════════════════════════════════════════════════════════════
+#  Aurora assistant (grounded Q&A + whitelisted UI actions)
+# ═══════════════════════════════════════════════════════════════
+# The browser's assistant panel parses common commands itself; questions and anything it
+# does not recognise come here. Answers use ONLY assistant.build_context() for the station.
+# Like the explain routes, /api/assistant/chat changes nothing (it may *return* actions,
+# which the browser validates again, confirms if they change state, and runs through the
+# normal, protected routes), so it is public and rate-limited by nginx instead.
+
+ASSISTANT_NOTICE_OFFLINE = "Answering from station data only"
+# Topics where the deterministic answer is already the whole answer (a lookup): no LLM call.
+_ASSISTANT_LOOKUPS = {"fuel", "sensor", "weather", "generator", "alerts", "depends"}
+
+
+def _assistant_context(sid: str, request: Request | None) -> dict:
+    snap = overlay_snapshot(published_snapshot(sid), sandbox_session(request) if request else None)
+    anomaly = decision = None
+    anomaly_err = decision_err = None
+    try:
+        anomaly = _sim_request("GET", "/api/anomaly", params={"station": sid})
+    except HTTPException as exc:
+        anomaly_err = "simulator offline" if exc.status_code == 503 else f"HTTP {exc.status_code}"
+    try:
+        decision = _sim_request("GET", "/api/decision", params={"station": sid})
+    except HTTPException as exc:
+        decision_err = "simulator offline" if exc.status_code == 503 else f"HTTP {exc.status_code}"
+    return assistant.build_context(sid, snap, anomaly, decision, link=LINK.status(sid),
+                                   anomaly_error=anomaly_err, decision_error=decision_err)
+
+
+@app.get("/api/assistant/context")
+def assistant_context(request: Request, sid: str = Depends(station_param)):
+    """The compact, current context Aurora answers from (also used for incident briefings)."""
+    return _assistant_context(sid, request)
+
+
+@app.get("/api/assistant/status")
+def assistant_status():
+    """Whether answers can use the LLM now, or come from station data only."""
+    try:
+        st = _sim_request("GET", "/api/llm/status")
+    except HTTPException as exc:
+        return {"llmAvailable": False, "notice": ASSISTANT_NOTICE_OFFLINE, "reason": str(exc.detail)}
+    ok = bool(st.get("configured")) and st.get("explainRemaining", 0) > 0
+    reason = None if ok else ("no Groq key on the server" if not st.get("configured")
+                              else "the hourly or daily Groq budget is used up")
+    return {"llmAvailable": ok, "routerAvailable": bool(st.get("configured")) and st.get("routerRemaining", 0) > 0,
+            "notice": None if ok else ASSISTANT_NOTICE_OFFLINE, "reason": reason,
+            "models": {"router": st.get("routerModel"), "explain": st.get("explainModel")}}
+
+
+@app.post("/api/assistant/evaluate")
+def assistant_evaluate(sid: str = Depends(station_param)):
+    """Ask the decision engine to re-evaluate this station on its next tick (debounced to one
+    evaluation per 2 s). Changes no shared state: it only refreshes a computed assessment,
+    so like the explain routes it needs no token."""
+    try:
+        return _sim_request("POST", "/api/decision/evaluate", params={"station": sid})
+    except HTTPException as exc:
+        return {"queued": False, "station": sid, "reason": str(exc.detail)}
+
+
+@app.get("/api/assistant/playbooks")
+def assistant_playbooks():
+    """Incident playbooks: example procedures, not official NCPOR procedures."""
+    return assistant.playbooks()
+
+
+class AssistantTurn(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    role: Literal["user", "assistant"]
+    text: str = Field(..., max_length=600)
+
+
+class AssistantChatRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    stationId: StationIdStr
+    text: str = Field(..., min_length=1, max_length=assistant.TEXT_MAX)
+    page: str | None = Field(None, max_length=32, pattern=r"^[a-z]+$")
+    lang: Literal["en", "hi"] = "en"
+    history: list[AssistantTurn] = Field(default_factory=list, max_length=4)
+
+
+def _llm(kind: str, messages: list, **extra) -> dict:
+    """One call through the simulator's Groq gateway; {"available": False, "reason"} on any failure."""
+    try:
+        return _sim_request("POST", "/api/llm/chat", timeout=EXPLAIN_TIMEOUT_S,
+                            json_body={"kind": kind, "messages": messages, **extra})
+    except HTTPException as exc:
+        return {"available": False, "reason": str(exc.detail)}
+
+
+@app.post("/api/assistant/chat")
+def assistant_chat(req: AssistantChatRequest, request: Request):
+    default_sid = require_station(req.stationId)
+    q = assistant.understand(req.text, default_sid)
+    sid = q["station"]
+    key = ("assistant", sid, " ".join(req.text.lower().split()), req.lang, *_explain_key(sid, ExplainRequest())[3:])
+    now = time.time()
+    with _explain_lock:
+        hit = _explain_cache.get(key)
+    if hit and now - hit[0] <= app_config.EXPLAIN_CACHE_S:
+        return {**hit[1], "cached": True}
+
+    ctx = _assistant_context(sid, request)
+    llm = {"router": None, "explain": None}
+    reason = None
+    actions: list[dict] = []
+    rejected: list[str] = []
+
+    # 1. Unrecognised request: a small model maps it onto the whitelisted actions.
+    if q["topic"] == "unknown":
+        res = _llm("router", assistant.router_messages(req.text, ctx["station"]["name"], req.page),
+                   tools=assistant.tool_schemas(sid), maxTokens=300)
+        llm["router"] = bool(res.get("available"))
+        if not res.get("available"):
+            reason = res.get("reason")
+        for call in res.get("toolCalls") or []:
+            if call.get("name") == "answer_question":
+                a = call.get("arguments") or {}
+                if a.get("topic") in assistant.TOPICS:
+                    q = {**q, "topic": a["topic"], "building": a.get("building") or q["building"],
+                         "sensor": a.get("sensor") or q["sensor"]}
+                    if a.get("station") in STATIONS and a["station"] != sid:
+                        sid = a["station"]
+                        q["station"] = sid
+                        ctx = _assistant_context(sid, request)
+                continue
+            try:
+                actions.append(assistant.validate_action(call.get("name"), call.get("arguments"), sid))
+            except assistant.InvalidAction as exc:
+                log.info("Assistant: rejected tool call: %s", exc)
+                rejected.append(str(exc))
+        if q["topic"] in ("depends", "why_building") and not q.get("building"):
+            q = {**q, "topic": "unknown"}
+
+    draft = assistant.local_answer(q, ctx)
+    answer = {"spoken": draft["spoken"], "detail": draft["detail"]}
+    mode = "local"
+
+    # 2. Explanations (not plain lookups) are phrased by the explanation model, then checked.
+    explain = (q["topic"] not in _ASSISTANT_LOOKUPS or req.lang == "hi") and not (q["topic"] == "unknown" and actions)
+    grounding = None
+    if explain and q["topic"] != "unknown":
+        res = _llm("explain", assistant.explain_messages(ctx, req.text, draft, req.lang), maxTokens=700, json=True)
+        llm["explain"] = bool(res.get("available"))
+        if res.get("available"):
+            parsed = assistant.parse_explanation(res.get("content", ""))
+            if parsed:
+                ok, bad = assistant.numbers_grounded(parsed["spoken"] + " " + " ".join(parsed["detail"]),
+                                                     assistant.compact_for_llm(ctx), draft)
+                grounding = {"ok": ok, "ungrounded": bad}
+                refused = parsed["spoken"].startswith(assistant.NOT_IN_DATA) and not draft["spoken"].startswith(
+                    assistant.NOT_IN_DATA)
+                if ok and not refused:
+                    answer, mode = parsed, "llm"
+                elif refused:
+                    log.info("Assistant: LLM said the data has no answer, but the data answer exists; using it")
+                else:
+                    log.info("Assistant: LLM reply quoted numbers not in the context %s; using the data answer", bad)
+            else:
+                log.info("Assistant: explanation model returned no usable JSON; using the data answer")
+        else:
+            reason = reason or res.get("reason")
+
+    if not actions:
+        actions = [assistant.validate_action(a["type"], a["args"], sid) for a in draft["actions"]]
+    elif q["topic"] == "unknown":
+        answer = {"spoken": "", "detail": []}      # the browser announces the actions it runs
+    llm_used = any(v for v in llm.values())
+    llm_failed = any(v is False for v in llm.values())
+    out = {
+        "station": sid, "topic": q["topic"], "spoken": answer["spoken"], "detail": answer["detail"],
+        "actions": actions, "mode": mode, "sources": draft["sources"],
+        "llm": llm, "grounding": grounding, "rejectedActions": rejected,
+        "notice": None if (llm_used and not llm_failed) or not (explain or q["topic"] == "unknown")
+        else ASSISTANT_NOTICE_OFFLINE,
+        "reason": reason if llm_failed else None,
+        "replayTime": ctx.get("replayTime"),
+    }
+    if mode == "llm" or not llm_failed:
+        with _explain_lock:
+            _explain_cache[key] = (time.time(), out)
+    return out
+
 
 if __name__ == "__main__":
     import uvicorn

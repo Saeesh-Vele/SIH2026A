@@ -7,7 +7,7 @@
    changes, so no sign-in is needed. Scenario descriptions below state exactly
    what the backend changes, and nothing more.
    ═══════════════════════════════════════════════════════════════ */
-import { useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import {
   Alert, Box, Button, Card, Slider, Stack, Table, TableBody, TableCell, TableHead, TableRow, ToggleButton, ToggleButtonGroup, Typography,
 } from '@mui/material';
@@ -44,11 +44,23 @@ function signed(v, unit, d = 1) {
   return `${v > 0 ? '+' : '−'}${formatValue(Math.abs(v), unit, d)}`;
 }
 
-export default function WhatIfModule({ activeStation = 'maitri', sensorData = {}, telemetrySource, updatedAt }) {
+export default function WhatIfModule({ activeStation = 'maitri', sensorData = {}, telemetrySource, updatedAt, preset = null }) {
   const meta = MODULES.simulation;
-  const [scenario, setScenario] = useState(SCENARIOS[0].id);
-  const [intensity, setIntensity] = useState(1);
-  const [run, setRun] = useState({ busy: false, result: null, error: null, key: null });
+  // `preset`: a run Aurora already made ({scenario, intensity, result, station, nonce}); shown as is.
+  const fresh = preset && preset.station === activeStation ? preset : null;
+  const [scenario, setScenario] = useState(fresh?.scenario ?? SCENARIOS[0].id);
+  const [intensity, setIntensity] = useState(fresh?.intensity ?? 1);
+  const [run, setRun] = useState(() => (fresh
+    ? { busy: false, result: fresh.result, error: null, key: `${activeStation}|${fresh.scenario}|${fresh.intensity}` }
+    : { busy: false, result: null, error: null, key: null }));
+  const seen = useRef(fresh?.nonce);
+  useEffect(() => {
+    if (!preset || preset.station !== activeStation || seen.current === preset.nonce) return;
+    seen.current = preset.nonce;
+    setScenario(preset.scenario);
+    setIntensity(preset.intensity);
+    setRun({ busy: false, result: preset.result, error: null, key: `${activeStation}|${preset.scenario}|${preset.intensity}` });
+  }, [preset, activeStation]);
   const lab = sensorData.lab || {};
   const gen = sensorData.generator || {};
   const key = `${activeStation}|${scenario}|${intensity}`;

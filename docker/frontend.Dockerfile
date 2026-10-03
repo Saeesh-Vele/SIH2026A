@@ -36,6 +36,8 @@ COPY src/ ./src/
 # at build time as ../../simulator/station_config.json — so it must sit beside src/ at
 # the same relative depth, or the bundle cannot resolve it.
 COPY simulator/station_config.json ./simulator/station_config.json
+# The assistant's action whitelist, shared with the backend (src/assistant/actions.js imports it).
+COPY simulator/assistant_actions.json ./simulator/assistant_actions.json
 
 RUN npm run build
 

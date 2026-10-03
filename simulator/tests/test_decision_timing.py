@@ -31,6 +31,15 @@ def test_no_change_no_evaluation_until_periodic():
     assert ok and reasons == ["periodic"]
 
 
+def test_request_evaluates_on_the_next_tick():
+    s = _sched()
+    s.record(1, NORMAL, *s.should_evaluate(1, False, [], "low")[1:])
+    s.request("assistant_incident")
+    ok, reasons = s.should_evaluate(2, False, [], "low")
+    assert ok and reasons == ["assistant_incident"]
+    assert s.should_evaluate(3, False, [], "low") == (False, [])        # once only
+
+
 @pytest.mark.parametrize("change,reason", [
     (dict(anomaly=True), "anomaly_flip"),
     (dict(inj=["generator.gen_rpm"]), "injection_started"),

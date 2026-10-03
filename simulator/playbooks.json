@@ -1,0 +1,394 @@
+{
+  "schemaVersion": 1,
+  "disclaimer": "Example procedure, not an official NCPOR procedure.",
+  "description": "Aurora's incident playbooks: one per failure type the twin can show (the public demo scenarios and the main alert and anomaly types). Read by simulator/assistant.py and served at GET /api/assistant/playbooks. Each one is a conservative EXAMPLE written for the demo: safety first, verify before acting, keep the station leader and the mainland informed. Typical causes are typical, never a diagnosis. Matching: an active demo scenario id wins; otherwise the playbook whose alert sensors match the incident's alerts (first in this file's order); otherwise its anomaly causes; otherwise 'anomaly'. Each step has `do` (the checklist text) and `say` (a short phrase for the spoken briefing). `baselineRisk` is the floor for this failure type (decision-engine scale nominal < low < moderate < high < critical): a briefing never states a lower risk, even while the engine has not caught up.",
+  "playbooks": [
+    {
+      "id": "generator_failure",
+      "title": "Generator failure",
+      "match": {
+        "scenarios": [
+          "generator_failure"
+        ],
+        "sensors": [
+          "gen_power",
+          "gen_rpm",
+          "gen_temp"
+        ],
+        "anomalyCauses": [
+          "generator_output_loss",
+          "bearing_wear",
+          "cooling_degradation"
+        ]
+      },
+      "page": "energy",
+      "focus": "generator",
+      "meaning": "The primary diesel generator is producing less power than the station needs, or has stopped. Every building it powers is exposed, and the heating zones lose their electrical supply first.",
+      "typicalCauses": [
+        "Fuel supply interruption (blocked filter, waxed fuel in extreme cold, empty day tank)",
+        "Engine protection trip (high coolant temperature, low oil pressure, overspeed)",
+        "Cooling system fault (coolant loss, radiator or fan failure)",
+        "Electrical fault on the alternator or the main switchboard"
+      ],
+      "affectedHint": "Everything downstream of the Generator Shed in the dependency graph: both heating zones, water treatment, the comms tower, living quarters and the research lab.",
+      "riskRationale": "Loss of power removes heating within hours at Antarctic temperatures; frozen water lines and loss of communications follow. The time to restore power is the main driver of risk.",
+      "baselineRisk": "high",
+      "steps": [
+        {
+          "do": "Verify that backup power has taken over: standby generator running or UPS carrying the critical loads.",
+          "say": "verify backup power"
+        },
+        {
+          "do": "Check the affected electrical loads and shed non-essential ones so the standby supply is not overloaded.",
+          "say": "check the affected electrical loads"
+        },
+        {
+          "do": "Inspect the generator's fault indicators and alarm panel before any restart attempt; do not reset repeated trips.",
+          "say": "inspect the generator fault indicators"
+        },
+        {
+          "do": "Confirm heating is maintained in the living quarters and that water lines are protected from freezing.",
+          "say": "confirm heating in the living quarters"
+        },
+        {
+          "do": "Notify the station leader, log the event, and inform the mainland if power is not restored within the agreed time.",
+          "say": "notify the station leader"
+        }
+      ]
+    },
+    {
+      "id": "heating_failure",
+      "title": "Heating failure",
+      "match": {
+        "scenarios": [
+          "heating_failure"
+        ],
+        "sensors": [
+          "heat_a_temp",
+          "heat_a_flow",
+          "heat_a_pressure",
+          "heat_b_temp",
+          "heat_b_flow",
+          "lq_temp"
+        ],
+        "anomalyCauses": [
+          "heating_degradation"
+        ]
+      },
+      "page": "infrastructure",
+      "focus": "heating",
+      "meaning": "A heating zone is not delivering enough heat: supply temperature or flow is outside its normal range. The buildings it serves will cool down.",
+      "typicalCauses": [
+        "Circulation pump failure or an air lock in the loop",
+        "Low system pressure from a leak",
+        "Boiler or heat-exchanger fault, or loss of waste heat from the generator",
+        "Control valve or thermostat fault"
+      ],
+      "affectedHint": "The buildings the heating zone serves in the dependency graph (living quarters for zone A, the research lab for zone B).",
+      "riskRationale": "Indoor temperature falls quickly when the outside is far below freezing; crew safety and frozen pipes are the main risks. Risk rises with the outside cold and the time without heat.",
+      "baselineRisk": "high",
+      "steps": [
+        {
+          "do": "Check the indoor temperature in the affected buildings and move crew to a heated area if it keeps falling.",
+          "say": "check the indoor temperatures"
+        },
+        {
+          "do": "Verify the circulation pump is running and the loop pressure is within its normal range.",
+          "say": "verify the circulation pump and loop pressure"
+        },
+        {
+          "do": "Look for leaks along the heating loop and isolate any leaking section.",
+          "say": "look for leaks in the heating loop"
+        },
+        {
+          "do": "Bring standby heating online for the affected zone if it is available.",
+          "say": "bring standby heating online"
+        },
+        {
+          "do": "Notify the station leader and log the event, with the indoor temperatures over time.",
+          "say": "notify the station leader"
+        }
+      ]
+    },
+    {
+      "id": "water_crisis",
+      "title": "Water system alert",
+      "match": {
+        "scenarios": [
+          "water_crisis"
+        ],
+        "sensors": [
+          "water_level",
+          "water_ph",
+          "water_temp"
+        ],
+        "anomalyCauses": []
+      },
+      "page": "infrastructure",
+      "focus": "waterTank",
+      "meaning": "The water treatment plant reports a low tank level or water quality outside its normal range (pH or temperature).",
+      "typicalCauses": [
+        "Snow-melt production lower than consumption (melter fault or a heating shortfall)",
+        "Leak in the storage tank or distribution lines",
+        "Treatment dosing fault that changes the pH",
+        "Frozen intake or distribution line"
+      ],
+      "affectedHint": "The buildings the water treatment plant supplies in the dependency graph (living quarters and the research lab).",
+      "riskRationale": "Drinking and sanitation water are essential; water outside its quality range must not be drunk until it has been checked again.",
+      "baselineRisk": "moderate",
+      "steps": [
+        {
+          "do": "Restrict drinking water use until the water quality has been checked by hand.",
+          "say": "restrict drinking water use"
+        },
+        {
+          "do": "Verify the level reading with a manual check of the tank.",
+          "say": "verify the tank level by hand"
+        },
+        {
+          "do": "Inspect the snow melter, pumps and lines for leaks or freezing.",
+          "say": "inspect the melter, pumps and lines"
+        },
+        {
+          "do": "Check the treatment dosing and correct it only per the plant's own procedure.",
+          "say": "check the treatment dosing"
+        },
+        {
+          "do": "Notify the station leader and start water rationing if the level keeps falling.",
+          "say": "notify the station leader"
+        }
+      ]
+    },
+    {
+      "id": "co2_spike",
+      "title": "CO₂ build-up in the living quarters",
+      "match": {
+        "scenarios": [
+          "co2_spike"
+        ],
+        "sensors": [
+          "lq_co2",
+          "lq_humidity"
+        ],
+        "anomalyCauses": [
+          "ventilation_degradation"
+        ]
+      },
+      "page": "infrastructure",
+      "focus": "livingQuarters",
+      "meaning": "Carbon dioxide in the living quarters is above its threshold, which usually means the air is not being exchanged fast enough.",
+      "typicalCauses": [
+        "Ventilation fan failure or a blocked air intake (snow or ice)",
+        "Too many people in a closed space for the ventilation rate",
+        "Combustion source indoors (heater or cooking equipment)"
+      ],
+      "affectedHint": "The living quarters, and the crew inside it.",
+      "riskRationale": "High CO₂ causes headaches and poor judgement; very high levels are dangerous. A combustion source can also mean carbon monoxide, which this twin does not measure.",
+      "baselineRisk": "high",
+      "steps": [
+        {
+          "do": "Move people out of the affected rooms if anyone has a headache or dizziness, or the level keeps rising.",
+          "say": "move people out if anyone feels unwell"
+        },
+        {
+          "do": "Check carbon monoxide with a handheld detector, since a combustion source is possible.",
+          "say": "check carbon monoxide with a handheld detector"
+        },
+        {
+          "do": "Verify the ventilation fans are running and the air intakes are not blocked by snow or ice.",
+          "say": "verify the ventilation fans and air intakes"
+        },
+        {
+          "do": "Increase fresh-air exchange and reduce occupancy until the level falls.",
+          "say": "increase fresh-air exchange"
+        },
+        {
+          "do": "Notify the station leader and log the readings.",
+          "say": "notify the station leader"
+        }
+      ]
+    },
+    {
+      "id": "blizzard",
+      "title": "Blizzard",
+      "match": {
+        "scenarios": [
+          "blizzard"
+        ],
+        "sensors": [
+          "env_wind",
+          "env_temp",
+          "env_pressure"
+        ],
+        "anomalyCauses": []
+      },
+      "page": "environmental",
+      "focus": "lab",
+      "meaning": "Wind, temperature or pressure outside the station has crossed storm thresholds. Visibility and outdoor safety drop, and the satellite link may degrade.",
+      "typicalCauses": [
+        "A low-pressure system passing over the station",
+        "Katabatic winds from the ice sheet"
+      ],
+      "affectedHint": "Outdoor operations, the comms tower (satellite link) and the heating load, which rises with wind and cold.",
+      "riskRationale": "Outdoor movement becomes dangerous in high wind and low visibility; external equipment can be damaged; communications may be lost.",
+      "baselineRisk": "high",
+      "steps": [
+        {
+          "do": "Stop outdoor work and account for everyone: confirm all personnel are inside.",
+          "say": "stop outdoor work and account for everyone"
+        },
+        {
+          "do": "Secure external equipment and close outer doors and hatches.",
+          "say": "secure external equipment"
+        },
+        {
+          "do": "Check the heating and generator margin for the extra load from wind and cold.",
+          "say": "check the heating and generator margin"
+        },
+        {
+          "do": "Prepare for reduced satellite bandwidth: send critical messages early.",
+          "say": "send critical messages early"
+        },
+        {
+          "do": "Notify the station leader and keep a weather watch until the wind drops.",
+          "say": "notify the station leader"
+        }
+      ]
+    },
+    {
+      "id": "link_loss",
+      "title": "Satellite link loss",
+      "match": {
+        "scenarios": [
+          "link_loss"
+        ],
+        "sensors": [
+          "comms_signal",
+          "comms_bandwidth",
+          "comms_uptime"
+        ],
+        "anomalyCauses": []
+      },
+      "page": "infrastructure",
+      "focus": "commsMast",
+      "meaning": "The station's satellite link is down or badly degraded. The station keeps recording, but the mainland cannot see it until the link returns.",
+      "typicalCauses": [
+        "Antenna misalignment or icing",
+        "Weather attenuation during a storm",
+        "Modem or power fault at the comms tower",
+        "Outage at the satellite operator"
+      ],
+      "affectedHint": "The comms tower and every data stream to the mainland; on-site systems keep running.",
+      "riskRationale": "Without the link the station cannot ask for help or report status. Risk grows with the outage length and with any other incident running at the same time.",
+      "baselineRisk": "moderate",
+      "steps": [
+        {
+          "do": "Switch to the backup communication channel (HF radio or a secondary satellite terminal).",
+          "say": "switch to the backup communication channel"
+        },
+        {
+          "do": "Check power and status lights at the comms tower and the modem.",
+          "say": "check power at the comms tower"
+        },
+        {
+          "do": "Inspect the antenna for icing or misalignment when it is safe to go outside.",
+          "say": "inspect the antenna when it is safe"
+        },
+        {
+          "do": "Keep logging station data locally so nothing is lost while the link is down.",
+          "say": "keep logging data locally"
+        },
+        {
+          "do": "Agree a check-in schedule with the mainland on the backup channel and notify the station leader.",
+          "say": "agree a check-in schedule with the mainland"
+        }
+      ]
+    },
+    {
+      "id": "low_fuel",
+      "title": "Low fuel",
+      "match": {
+        "scenarios": [],
+        "sensors": [
+          "store_fuel",
+          "gen_fuel_rate"
+        ],
+        "anomalyCauses": [
+          "fuel_system_degradation"
+        ]
+      },
+      "page": "energy",
+      "focus": "storage",
+      "meaning": "Fuel autonomy is lower than its threshold: either the stock is low or the generator is burning fuel faster than normal.",
+      "typicalCauses": [
+        "Higher consumption from cold weather or a heavy load",
+        "Fuel leak or an unmetered loss",
+        "Reading error in the tank gauge",
+        "Resupply delay"
+      ],
+      "affectedHint": "The generator and everything it powers, over the coming days.",
+      "riskRationale": "Fuel is the station's only primary energy source; running out stops power and heating. The days of autonomy left decide how urgent this is.",
+      "baselineRisk": "moderate",
+      "steps": [
+        {
+          "do": "Verify the fuel stock with a manual dip of the tanks.",
+          "say": "verify the fuel stock by hand"
+        },
+        {
+          "do": "Check for leaks along the fuel lines and around the storage area.",
+          "say": "check for fuel leaks"
+        },
+        {
+          "do": "Reduce non-essential loads to lower the burn rate.",
+          "say": "reduce non-essential loads"
+        },
+        {
+          "do": "Recalculate days of autonomy with the measured stock and the current burn.",
+          "say": "recalculate days of autonomy"
+        },
+        {
+          "do": "Notify the station leader and the mainland logistics team about the resupply timing.",
+          "say": "notify the station leader and mainland logistics"
+        }
+      ]
+    },
+    {
+      "id": "anomaly",
+      "title": "Unexplained anomaly",
+      "match": {
+        "scenarios": [],
+        "sensors": [],
+        "anomalyCauses": []
+      },
+      "page": "ai",
+      "focus": null,
+      "meaning": "The anomaly detector reports readings that differ from what the physics model expects, and they do not match a known failure signature.",
+      "typicalCauses": [
+        "Sensor fault or drift",
+        "An early-stage equipment fault",
+        "An operating condition the physics model does not include"
+      ],
+      "affectedHint": "The buildings of the sensors that deviate most from the physics prediction.",
+      "riskRationale": "An unexplained deviation is a reason to check, not proof of a fault. The detector compares against synthetic prototype signatures, not a validated diagnosis.",
+      "baselineRisk": "low",
+      "steps": [
+        {
+          "do": "Read the anomaly evidence: which sensors deviate from the physics prediction, and by how much.",
+          "say": "read the anomaly evidence"
+        },
+        {
+          "do": "Verify the deviating readings with a second instrument or a visual check.",
+          "say": "verify the deviating readings"
+        },
+        {
+          "do": "Inspect the equipment behind those sensors for visible faults.",
+          "say": "inspect the equipment behind those sensors"
+        },
+        {
+          "do": "Notify the station leader if the deviation grows or a threshold alert follows.",
+          "say": "notify the station leader if it grows"
+        }
+      ]
+    }
+  ]
+}

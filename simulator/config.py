@@ -109,6 +109,8 @@ DB_PATH = _resolve_path(_get("DB_PATH"), DATA_DIR / "antarctic_observations.db")
 WEATHER_CACHE_DIR = SIM_DIR / "weather_cache"
 BASELINE_DATA_PATH = SIM_DIR / "baseline_data.json"
 STATION_CONFIG_PATH = SIM_DIR / "station_config.json"   # single source of station facts
+PLAYBOOKS_PATH = SIM_DIR / "playbooks.json"               # assistant incident playbooks (example procedures)
+ASSISTANT_ACTIONS_PATH = SIM_DIR / "assistant_actions.json"   # the assistant's whitelisted UI actions
 FORECAST_ARENA_REPORT_PATH = SIM_DIR / "forecast_arena_results.md"
 
 
@@ -167,12 +169,22 @@ GROQ_MODEL = _get("GROQ_MODEL", "openai/gpt-oss-120b")
 # explain routes return the offline summary instead — honest, and it bounds the bill.
 # Sized for Groq's free tier on openai/gpt-oss-120b (30 req/min, 1,000 req/day, 8,000
 # tokens/min, 200,000 tokens/day): one explanation is about 1–1.5k tokens, so the daily
-# token budget (~130 calls) is the binding limit, not the request count.
+# token budget is the binding limit, not the request count: the assistant's explanation
+# prompt is ~1.8k tokens, so 100 calls a day stays inside 200k tokens.
 GROQ_MAX_CALLS_PER_HOUR = _get_int("GROQ_MAX_CALLS_PER_HOUR", 40)
-GROQ_MAX_CALLS_PER_DAY = _get_int("GROQ_MAX_CALLS_PER_DAY", 120)
+GROQ_MAX_CALLS_PER_DAY = _get_int("GROQ_MAX_CALLS_PER_DAY", 100)
 # Identical explanation requests (same station, question, text and alert state) within
 # this many seconds reuse the previous LLM answer instead of spending another call.
 EXPLAIN_CACHE_S = _get_int("EXPLAIN_CACHE_S", 120)
+# Aurora assistant: a small, fast model routes free-form requests to the whitelisted UI
+# actions (tool calling); explanations use GROQ_MODEL and share its budget above. The router
+# has its own budget because Groq meters each model separately. Free tier for
+# openai/gpt-oss-20b: 30 req/min, 1,000 req/day, 8,000 tokens/min, 200,000 tokens/day; one
+# routing call is about 1.2k tokens, so 120 a day stays well inside it. Most commands never
+# reach it: the deterministic intent parsers (browser and backend) handle them first.
+GROQ_ROUTER_MODEL = _get("GROQ_ROUTER_MODEL", "openai/gpt-oss-20b")
+GROQ_ROUTER_MAX_CALLS_PER_HOUR = _get_int("GROQ_ROUTER_MAX_CALLS_PER_HOUR", 30)
+GROQ_ROUTER_MAX_CALLS_PER_DAY = _get_int("GROQ_ROUTER_MAX_CALLS_PER_DAY", 120)
 
 # ── Write protection ─────────────────────────────────────────
 # When set, every state-changing route requires `X-Admin-Token: <ADMIN_TOKEN>`.
@@ -267,6 +279,7 @@ def summary() -> dict:
         "AURORA_DATE": AURORA_DATE, "AURORA_DATE_SOURCE": AURORA_DATE_SOURCE,
         "GROQ_API_KEY": "set" if GROQ_API_KEY else "not set", "GROQ_MODEL": GROQ_MODEL,
         "GROQ_MAX_CALLS_PER_HOUR": GROQ_MAX_CALLS_PER_HOUR,
+        "GROQ_ROUTER_MODEL": GROQ_ROUTER_MODEL,
         "APP_ENV": APP_ENV, "ADMIN_TOKEN": "set" if ADMIN_TOKEN else "not set",
         "LOG_LEVEL": LOG_LEVEL,
         "APP_VERSION": APP_VERSION, "SIM_BATCH_FRESH_S": SIM_BATCH_FRESH_S,

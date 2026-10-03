@@ -8,6 +8,7 @@ was down to luck. Now a station's decision is re-evaluated:
   • immediately when the anomaly state flips (normal ↔ anomalous),
   • immediately when an injection starts or ends (active injection keys change),
   • immediately when the forecast's input risk level changes,
+  • on request (request(), e.g. the assistant opening an incident),
   • periodically as a fallback (every PERIODIC_S),
   • but never more than once per DEBOUNCE_S (debounce).
 
@@ -69,6 +70,12 @@ class DecisionScheduler:
             return False, []
         self._pending = []
         return True, sorted(set(reasons))
+
+    def request(self, reason: str) -> None:
+        """Ask for an evaluation on the next tick (still subject to the debounce), e.g. when
+        the assistant opens an incident and needs the engine's view of it now."""
+        if reason not in self._pending:
+            self._pending.append(reason)
 
     # ── what to publish ───────────────────────────────────────
     def record(self, tick: int, decision: dict, reasons) -> dict:

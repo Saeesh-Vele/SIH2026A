@@ -260,6 +260,22 @@ jobs:
           E2E_BASE_URL: http://localhost
         run: npm run test:e2e
 
+      # After the browser tests (same client address), so the burst below cannot starve them.
+      - name: Aurora — the chat route answers through nginx and is rate-limited
+        run: |
+          body='{"stationId":"maitri","text":"what is the fuel situation"}'
+          sleep 10   # let the per-address bucket refill after the browser tests
+          curl -fsS -X POST -H 'Content-Type: application/json' -d "$body" \
+            http://localhost/api/assistant/chat | tee /tmp/aurora.json | grep -q '"topic":"fuel"'
+          head -c 300 /tmp/aurora.json; echo
+          codes=""
+          for i in $(seq 1 10); do
+            codes="$codes $(curl -s -o /dev/null -w '%{http_code}' -X POST -H 'Content-Type: application/json' \
+              -d "$body" http://localhost/api/assistant/chat)"
+          done
+          echo "status codes:$codes"
+          echo "$codes" | grep -q 429 || { echo "::error::no 429 from /api/assistant/chat after a burst"; exit 1; }
+
       # ── Write protection ──────────────────────────────────────
       # The token comes from the step environment, never inline in a curl -H: a literal
       # there is indistinguishable from a real leaked credential (gitleaks'

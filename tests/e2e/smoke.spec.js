@@ -9,6 +9,7 @@
  * Runs with software WebGL (see playwright.config.js) so the three.js twin renders
  * rather than silently taking the 2D fallback.
  */
+import AxeBuilder from '@axe-core/playwright';
 import { expect, test } from '@playwright/test';
 
 // Against the Docker stack the API is same-origin behind nginx (E2E_BASE_URL);
@@ -506,13 +507,14 @@ test('first visit: the welcome card shows once, and Take the tour runs the tour 
   await expect(page.getByTestId('data-source-badge')).not.toHaveAttribute('data-source', 'connecting');
   await expect(page.getByTestId('tour-back')).toBeHidden();         // nothing to go back to on step 1
 
-  // ← goes back a step; then run all 12 steps through.
+  // ← goes back a step; then run all 13 steps through.
   await page.getByTestId('tour-next').click();
   await expect(page.getByTestId('tour-popover')).toHaveAttribute('data-tour-step', '2');
   await page.keyboard.press('ArrowLeft');
-  const titles = await completeTour(page, 12);
+  const titles = await completeTour(page, 13);
   expect(titles[0]).toBe('Choose a station');
-  expect(titles[11]).toBe('System');
+  expect(titles[3]).toBe('Ask Aurora');
+  expect(titles[12]).toBe('System');
   // Focus is back on the page, not lost on <body>.
   await expect.poll(() => page.evaluate(() => document.activeElement !== document.body)).toBe(true);
   expect(await page.evaluate((k) => JSON.parse(localStorage.getItem(k)).outcome, TOUR_KEY)).toBe('completed');
@@ -576,7 +578,7 @@ test('product tour on a phone: sidebar steps open the drawer, demo control point
   const popover = page.getByTestId('tour-popover');
   await expect(popover).toBeVisible({ timeout: 30_000 });
   const drawer = page.getByTestId('mobile-nav');
-  for (let i = 1; i <= 12; i++) {
+  for (let i = 1; i <= 13; i++) {
     await expect(popover).toHaveAttribute('data-tour-step', String(i));
     const title = await popover.locator('h2').textContent();
     if (['Monitor', 'Operate', 'Analyse', 'AI diagnostics', 'Twin inspector', 'System'].includes(title)) {
@@ -936,3 +938,167 @@ test('stories: the picker explains when another scenario is running, and Share t
   await expect(page.getByTestId('about-dialog')).toContainText('github.com/Saeesh-Vele/SIH2026A');
 });
 
+
+// ── Aurora assistant ─────────────────────────────────────────────────────────
+// The stack under test has GROQ_API_KEY cleared, so these also prove Aurora works with
+// the LLM disabled: commands are parsed in the browser, answers come from station data.
+
+/** axe on one region: no serious or critical violations. */
+async function expectAccessible(page, selector, what) {
+  const results = await new AxeBuilder({ page }).include(selector).analyze();
+  const bad = results.violations.filter((v) => v.impact === 'serious' || v.impact === 'critical')
+    .map((v) => `${v.impact}: ${v.id} (${v.nodes.length}) ${v.nodes[0]?.target}`);
+  expect(bad, `axe: serious/critical violations in ${what}`).toEqual([]);
+}
+
+async function askAurora(page, text) {
+  const before = await page.getByTestId('msg-aurora').count();
+  await page.getByTestId('assistant-input').fill(text);
+  await page.getByTestId('assistant-input').press('Enter');
+  await expect(page.getByTestId('msg-aurora')).toHaveCount(before + 1, { timeout: 20_000 });
+  return page.getByTestId('msg-aurora').last();
+}
+
+test('Aurora: text commands navigate and highlight, answers come from station data with the LLM disabled', async ({ page }) => {
+  const { consoleErrors, failedRequests } = watchForProblems(page);
+  await page.goto('/?station=maitri');
+  await expect(page.getByTestId('data-source-badge')).toHaveAttribute('data-source', /simulator|physics-fallback/, { timeout: 30_000 });
+  await page.getByTestId('assistant-open').click();
+  const panel = page.getByTestId('assistant-panel');
+  await expect(panel).toBeVisible();
+  await expect(page.getByTestId('assistant-privacy')).toContainText(/may send audio to the browser vendor|not supported in this browser/);
+  await expect(page.getByTestId('assistant-offline')).toContainText('Answering from station data only');
+
+  // A page at another station, with an Undo chip.
+  let reply = await askAurora(page, 'Open the energy grid for Bharati');
+  await expect(page).toHaveURL(/module=energy/);
+  await expect(page).toHaveURL(/station=bharati/);
+  await expect(reply).toContainText('Opened Energy grid for Bharati');
+  await reply.getByTestId('action-chip').getByLabel(/Undo/).click();
+  await expect(page).toHaveURL(/station=maitri/);
+  await expect(page).not.toHaveURL(/module=energy/);
+
+  // What depends on the generator: Infrastructure, with the chain highlighted.
+  reply = await askAurora(page, 'Show me what depends on the generator');
+  await expect(reply).toContainText('depend on the Generator Shed');
+  await expect(page).toHaveURL(/module=infrastructure/);
+  await expect(page.getByTestId('dep-node-generator')).toHaveAttribute('data-highlighted', 'true');
+  await expect(page.getByTestId('building-tile-livingQuarters')).toHaveAttribute('data-highlighted', 'true');
+  await expect(page.getByTestId('highlight-strip')).toContainText('Generator Shed');
+
+  // Grounded answers, from data only.
+  reply = await askAurora(page, "What's the fuel situation at Maitri?");
+  await expect(reply).toContainText(/fuel store is [\d.,]+ kL/);
+  reply = await askAurora(page, 'Explain the current anomaly');
+  await expect(reply).toContainText(/detector|anomaly/i);
+  await expect(reply.getByTestId('msg-mode')).toContainText('Answering from station data only');
+
+  // A named what-if runs read-only and shows on the What-if page.
+  reply = await askAurora(page, 'What happens if there is a blizzard at Maitri?');
+  await expect(reply).toContainText('Rule-based what-if');
+  await expect(page.getByTestId('whatif-result')).toBeVisible();
+
+  // Mute is a chip with Undo; settings open.
+  reply = await askAurora(page, 'Mute');
+  await expect(page.getByTestId('assistant-mute')).toHaveAttribute('aria-pressed', 'true');
+  await page.getByTestId('assistant-settings').click();
+  await expect(page.getByTestId('assistant-settings-panel')).toBeVisible();
+  await expectAccessible(page, '[data-testid=assistant-panel]', 'the assistant panel');
+  await expectAccessible(page, '[data-testid=highlight-strip]', 'the highlight strip');
+
+  // Launch points: palette ("Ask Aurora: …") and the shortcuts dialog.
+  await page.getByTestId('assistant-close').click();
+  await expect(panel).toHaveCount(0);
+  await page.keyboard.press('ControlOrMeta+k');
+  await page.getByTestId('palette-input').fill('how windy is it');
+  await page.getByTestId('cmd-ask-aurora').click();
+  await expect(page.getByTestId('msg-user').last()).toHaveText(/how windy is it/);
+  await expect(page.getByTestId('msg-aurora').last()).toContainText(/wind/i, { timeout: 20_000 });
+  expect(consoleErrors, 'console errors while using Aurora').toEqual([]);
+  expect(failedRequests, 'failed requests while using Aurora').toEqual([]);
+});
+
+test('Aurora: without speech recognition the panel falls back to text', async ({ page }) => {
+  await page.addInitScript(() => { delete window.SpeechRecognition; delete window.webkitSpeechRecognition; });
+  await page.goto('/?station=maitri&module=energy');
+  await page.getByTestId('assistant-open').click();
+  await expect(page.getByTestId('assistant-mic')).toBeDisabled();
+  await expect(page.getByTestId('assistant-privacy')).toContainText('Voice input is not supported in this browser, so type instead.');
+  const reply = await askAurora(page, 'open the weather page');
+  await expect(reply).toContainText('Opened Weather');
+  await expect(page).toHaveURL(/module=environmental/);
+});
+
+test('Aurora: a state-changing action asks first; my generator failure opens the page, highlights the chain and is briefed at High', async ({ page, request }) => {
+  test.skip(!ALLOW_WRITES, LIVE_WRITES_SKIPPED);
+  const judge = await judgeMode(request);
+  test.skip(judge.writeProtected && !judge.publicDemo && !ADMIN_TOKEN, 'scenarios need PUBLIC_DEMO or the team token here');
+  test.setTimeout(240_000);
+  await waitForFreeStation(request, 'bharati');
+  await page.goto('/?station=bharati');
+  await expect(page.getByTestId('data-source-badge')).toHaveAttribute('data-source', /simulator|physics-fallback/, { timeout: 30_000 });
+  // Without the public demo, only the signed-in team may start a scenario (Aurora refuses otherwise).
+  if (judge.writeProtected && !judge.publicDemo) await operatorLogin(page);
+  await page.getByTestId('assistant-open').click();
+  try {
+    // Cancelled: nothing starts.
+    await page.getByTestId('assistant-input').fill('trigger a generator failure');
+    await page.getByTestId('assistant-input').press('Enter');
+    await expect(page.getByTestId('confirm-dialog')).toContainText('Run “Generator failure” at Bharati?');
+    await page.getByTestId('confirm-cancel').click();
+    await expect(page.getByTestId('msg-aurora').last()).toContainText('Cancelled');
+    const idle = await (await request.get(`${API}/api/station/bharati/state`)).json();
+    expect(idle.publicDemo?.bharati).toBeFalsy();
+
+    // Confirmed: the visitor's own incident takes over the page.
+    await page.getByTestId('assistant-input').fill('trigger a generator failure');
+    await page.getByTestId('assistant-input').press('Enter');
+    await page.getByTestId('confirm-ok').click();
+    const card = page.getByTestId('incident-card');
+    await expect(card).toHaveAttribute('data-incident', 'generator_failure', { timeout: 60_000 });
+    await expect(page).toHaveURL(/module=energy/);
+    await expect(page.getByTestId('highlight-strip')).toHaveAttribute('data-ids', /generator.*heating/);
+    await expect(page.getByTestId('incident-risk')).toContainText(/High|Critical/);
+    const briefing = page.locator('[data-testid=msg-aurora][data-kind=incident]');
+    await expect(briefing).toContainText('Generator failure detected at Bharati');
+    await expect(briefing).not.toContainText(/Risk is (low|nominal|moderate)/);
+    await expect(card).toContainText('Example procedure, not an official NCPOR procedure');
+    await page.getByTestId('incident-step-0').check();
+    await page.getByTestId('incident-next').click();
+    await expect(page.getByTestId('msg-aurora').last()).toContainText('Step 2 of 5');
+    await expectAccessible(page, '[data-testid=assistant-panel]', 'the panel with an incident card');
+  } finally {
+    await request.post(`${API}/api/sim/reset?stationId=bharati`, { headers: WRITE_HEADERS });
+  }
+  await expect(page.getByTestId('incident-card')).toHaveAttribute('data-status', 'resolved', { timeout: 90_000 });
+  await expect(page.locator('[data-testid=msg-aurora][data-kind=summary]')).toContainText(/resolved after .* 1 of 5 steps completed/);
+});
+
+test('Aurora: another visitor\'s incident shows the floating card and does not take over the page', async ({ page, browser, request }) => {
+  test.skip(!ALLOW_WRITES, LIVE_WRITES_SKIPPED);
+  const judge = await judgeMode(request);
+  test.skip(judge.writeProtected && !judge.publicDemo, 'another visitor cannot start a scenario on this stack');
+  test.setTimeout(240_000);
+  await waitForFreeStation(request, 'maitri');
+  await page.goto('/?station=maitri&module=logistics');
+  await expect(page.getByTestId('data-source-badge')).toHaveAttribute('data-source', /simulator|physics-fallback/, { timeout: 30_000 });
+  await page.getByTestId('nav-logistics').click();                 // a user gesture
+  const b = await secondVisitor(browser);
+  try {
+    if (IS_REMOTE) await page.waitForTimeout(61_000);
+    const started = await b.page.request.post(`${API}/api/sim/inject/heating_failure?stationId=maitri`);
+    expect(started.ok(), await started.text()).toBeTruthy();
+    const float = page.getByTestId('incident-float');
+    await expect(float).toContainText('Heating failure · Maitri', { timeout: 60_000 });
+    await expect(page.getByTestId('assistant-panel')).toHaveCount(0);
+    await expect(page).toHaveURL(/module=logistics/);
+    await expectAccessible(page, '[data-testid=incident-float]', 'the floating incident card');
+    await page.getByTestId('incident-float-show').click();
+    await expect(page).toHaveURL(/module=infrastructure/);
+    await expect(page.getByTestId('highlight-strip')).toContainText('Heating Zone A');
+    await expect(page.getByTestId('incident-card')).toBeVisible();
+  } finally {
+    await b.page.request.post(`${API}/api/sim/reset?stationId=maitri`);
+    await b.context.close();
+  }
+});

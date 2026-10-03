@@ -7,6 +7,7 @@ import { apiGet, apiPost } from '../services/api';
 import { stationMeta } from '../data/stationConfig';
 import { demoRemainingS, mmss } from '../lib/publicDemo';
 import { STORY_META } from './storyMeta';
+import { noteOwnScenario } from '../assistant/bus';
 
 const sleep = (ms) => new Promise((r) => { setTimeout(r, ms); });
 
@@ -48,6 +49,7 @@ export function storyHelpers(id, { live, run, setSelectedBuilding, closeAll }) {
       if (!meta.scenario || run()?.joined) return;
       try {
         await apiPost(`/sim/inject/${meta.scenario}?stationId=${meta.station}`);
+        noteOwnScenario(meta.station, meta.scenario);
         if (run()) run().injected = true;
       } catch (err) {
         const e = new Error('story: scenario not started');

@@ -30,6 +30,11 @@ export const MAIN_TOUR = [
     body: 'Open alerts by severity. Open the alert centre to acknowledge one, see what is already acknowledged, or browse the history.',
   },
   {
+    targets: [t('assistant')],
+    title: 'Ask Aurora',
+    body: ({ isPhone }) => `Aurora is the station assistant. Ask in plain words ("What's the fuel situation at Maitri?") or give a command ("Open the energy grid"). It answers only from the station's data and says when the data doesn't have the answer. It asks before anything that changes what other visitors see, and walks you through an incident step by step. ${isPhone ? 'Tap the mic to talk' : 'Hold V or click the mic to talk'}, or type.`,
+  },
+  {
     targets: [t('operator-login')],
     title: ({ judge }) => (judge?.sandbox ? 'Your own sandbox' : 'Viewing is open; changing needs sign-in'),
     body: ({ writeProtected, judge }) => (judge?.sandbox

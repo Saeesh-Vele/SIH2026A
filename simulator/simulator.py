@@ -908,6 +908,16 @@ def forecast_status():
         })
 
 
+@control_app.route("/api/decision/evaluate", methods=["POST"])
+def decision_evaluate():
+    """Re-evaluate this station's decision on the next tick (debounced). Used by the assistant
+    when an incident opens, so the risk it reports catches up with the alerts quickly."""
+    station_id = flask_request.args.get("station", "maitri")
+    sim = _get_station(station_id)
+    sim._decision_scheduler.request("assistant_incident")
+    return jsonify({"queued": True, "station": station_id})
+
+
 @control_app.route("/api/decision", methods=["GET"])
 def decision_status():
     """Phase 5: Decision engine output with audit trail."""
@@ -1111,6 +1121,38 @@ def _llm_available() -> bool:
     return bool(GROQ_API_KEY) and groq_budget_remaining() > 0
 
 
+# ── Assistant router budget ──────────────────────────────────
+# The Aurora assistant's free-form requests are routed to its whitelisted UI actions by a
+# small, fast model (GROQ_ROUTER_MODEL). Groq meters each model separately, so the router
+# has its own rolling-hour and 24 h caps; explanations keep using the budget above.
+_router_calls: collections.deque = collections.deque()
+
+
+def _router_used(now: float) -> tuple[int, int]:
+    """(router calls in the last hour, in the last 24 h). Caller holds _groq_lock."""
+    while _router_calls and _router_calls[0] < now - 86400.0:
+        _router_calls.popleft()
+    return sum(1 for t in _router_calls if t >= now - 3600.0), len(_router_calls)
+
+
+def router_budget_remaining() -> int:
+    with _groq_lock:
+        hour, day = _router_used(time.time())
+        return max(0, min(app_config.GROQ_ROUTER_MAX_CALLS_PER_HOUR - hour,
+                          app_config.GROQ_ROUTER_MAX_CALLS_PER_DAY - day))
+
+
+def _router_take_slot() -> bool:
+    now = time.time()
+    with _groq_lock:
+        hour, day = _router_used(now)
+        if hour >= app_config.GROQ_ROUTER_MAX_CALLS_PER_HOUR or day >= app_config.GROQ_ROUTER_MAX_CALLS_PER_DAY:
+            log.info("[Groq] router budget used up (%d this hour, %d today)", hour, day)
+            return False
+        _router_calls.append(now)
+        return True
+
+
 def _clean_user_text(value, limit: int = MAX_USER_TEXT_CHARS) -> str:
     """Coerce untrusted operator input to a bounded plain string."""
     if value is None:
@@ -1198,6 +1240,101 @@ def _call_groq(system_prompt: str, user_prompt: str, max_tokens: int = 400) -> s
                 log.debug("[Groq] could not read error body: %s", read_err)
         log.warning("[Groq] request failed: %s", err_msg)
         return "LLM explanation temporarily unavailable (upstream error; see server log)."
+
+
+# ── Assistant LLM gateway (internal) ─────────────────────────
+# The unified backend builds the Aurora assistant's grounded prompts (simulator/assistant.py)
+# and sends them here, so the key and every budget stay in this one process. Not reachable
+# from the browser (the backend is the only public service).
+LLM_ROLES = {"system", "user", "assistant"}
+LLM_MAX_MESSAGES = 12
+LLM_MAX_CHARS = 16000
+LLM_MAX_TOOLS = 20
+
+
+def _groq_chat(model: str, messages: list, *, tools=None, max_tokens: int = 400, json_mode: bool = False) -> dict:
+    """One Groq chat completion. The caller has already taken a budget slot.
+    → {"ok", "content", "toolCalls": [{"name", "arguments"}], "reason", "usage"}; never raises.
+    Uses requests (certifi's CA bundle), so it also works on Python builds without system certificates."""
+    body = {"model": model, "messages": messages, "temperature": 0.2, "max_tokens": max_tokens}
+    if model.startswith("openai/gpt-oss"):
+        body["reasoning_effort"] = "low"      # reasoning tokens count against max_tokens
+    if tools:
+        body["tools"] = tools
+        body["tool_choice"] = "auto"
+    if json_mode:
+        body["response_format"] = {"type": "json_object"}
+    try:
+        resp = requests.post(GROQ_API_URL, json=body, timeout=15, headers={
+            "Authorization": f"Bearer {GROQ_API_KEY}", "User-Agent": GROQ_USER_AGENT})
+    except requests.RequestException as e:
+        log.warning("[Groq] %s request failed: %s", model, type(e).__name__)
+        return {"ok": False, "reason": "upstream unreachable", "content": "", "toolCalls": []}
+    if resp.status_code != 200:
+        log.warning("[Groq] %s returned HTTP %s: %s", model, resp.status_code, resp.text[:300])
+        return {"ok": False, "reason": f"upstream HTTP {resp.status_code}", "content": "", "toolCalls": []}
+    try:
+        result = resp.json()
+    except ValueError:
+        log.warning("[Groq] %s returned invalid JSON", model)
+        return {"ok": False, "reason": "upstream returned invalid JSON", "content": "", "toolCalls": []}
+    msg = ((result.get("choices") or [{}])[0]).get("message") or {}
+    calls = []
+    for c in msg.get("tool_calls") or []:
+        fn = c.get("function") or {}
+        try:
+            args = json.loads(fn.get("arguments") or "{}")
+        except ValueError:
+            log.info("[Groq] tool call %s had invalid JSON arguments; dropped", fn.get("name"))
+            continue
+        calls.append({"name": str(fn.get("name", "")), "arguments": args if isinstance(args, dict) else {}})
+    usage = result.get("usage") or {}
+    return {"ok": True, "content": str(msg.get("content") or ""), "toolCalls": calls, "reason": None,
+            "usage": {"prompt": usage.get("prompt_tokens"), "completion": usage.get("completion_tokens")}}
+
+
+@control_app.route("/api/llm/status")
+def llm_status():
+    """Internal: whether the assistant's LLM stages can be used right now (never the key)."""
+    return jsonify({"configured": bool(GROQ_API_KEY), "explainRemaining": groq_budget_remaining(),
+                    "routerRemaining": router_budget_remaining(),
+                    "explainModel": GROQ_MODEL, "routerModel": app_config.GROQ_ROUTER_MODEL})
+
+
+@control_app.route("/api/llm/chat", methods=["POST"])
+def llm_chat():
+    """Internal: one chat completion for the backend's assistant.
+    kind "router" → GROQ_ROUTER_MODEL and the router budget (tool calling);
+    kind "explain" → GROQ_MODEL and the explanation budget."""
+    data = _json_body()
+    kind = data.get("kind")
+    if kind not in ("router", "explain"):
+        return jsonify({"error": "kind must be 'router' or 'explain'"}), 400
+    raw = data.get("messages")
+    if not isinstance(raw, list) or not 1 <= len(raw) <= LLM_MAX_MESSAGES:
+        return jsonify({"error": f"messages must be a list of 1-{LLM_MAX_MESSAGES}"}), 400
+    messages = []
+    for m in raw:
+        if not isinstance(m, dict) or m.get("role") not in LLM_ROLES or not isinstance(m.get("content"), str):
+            return jsonify({"error": "each message needs a role and string content"}), 400
+        messages.append({"role": m["role"], "content": m["content"]})
+    if sum(len(m["content"]) for m in messages) > LLM_MAX_CHARS:
+        return jsonify({"error": "messages too long"}), 400
+    tools = data.get("tools")
+    if tools is not None and (not isinstance(tools, list) or len(tools) > LLM_MAX_TOOLS):
+        return jsonify({"error": "tools must be a list"}), 400
+    try:
+        max_tokens = max(50, min(int(data.get("maxTokens", 400)), 900))
+    except (TypeError, ValueError):
+        max_tokens = 400
+    model = app_config.GROQ_ROUTER_MODEL if kind == "router" else GROQ_MODEL
+    if not GROQ_API_KEY:
+        return jsonify({"available": False, "reason": "GROQ_API_KEY is not configured on the server", "model": model})
+    if not (_router_take_slot() if kind == "router" else _groq_take_slot()):
+        return jsonify({"available": False, "capped": True, "model": model,
+                        "reason": "the server's Groq budget for this hour or day is used up"})
+    res = _groq_chat(model, messages, tools=tools, max_tokens=max_tokens, json_mode=bool(data.get("json")))
+    return jsonify({"available": res["ok"], "model": model, **res})
 
 
 @control_app.route("/api/aurora-explain", methods=["POST"])

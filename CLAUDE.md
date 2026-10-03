@@ -31,6 +31,24 @@
   Python reads it via `simulator/station_config.py`; the frontend imports it via `src/data/stationConfig.js`;
   it is served at `GET /api/config/stations`. Never hardcode coordinates, names, graphs or thresholds elsewhere.
   Physics parameters stay in `physics_model.py`.
+- **Aurora assistant** (`src/assistant/`, `simulator/assistant.py`): only the whitelisted actions in
+  `simulator/assistant_actions.json` can run (the backend builds the LLM's tools from it and validates
+  tool calls; the browser validates again and executes). State-changing ones (`startStory`,
+  `triggerDemoScenario`) are confirmed (click or voice) and go through the normal routes, so the public-demo
+  and ADMIN_TOKEN rules apply unchanged. Answers come only from `GET /api/assistant/context`; a reply that
+  quotes a number not in that context is replaced by the deterministic answer (`numbers_grounded`).
+  Common commands are parsed in the browser (`intents.js`) and lookups answered from data, so neither
+  calls the LLM; Groq calls go through the simulator's `/api/llm/chat` (router = `GROQ_ROUTER_MODEL`
+  with its own caps; explanations share `GROQ_MAX_CALLS_PER_*`). Incident playbooks
+  (`simulator/playbooks.json`) are example procedures, never official ones; an incident never states a
+  risk below its playbook's `baselineRisk` (max(baseline, engine)), and opening one asks the decision
+  engine to re-evaluate (`POST /api/assistant/evaluate`). Only the visitor's own incidents (a scenario
+  this browser started, or their sandbox alerts) open pages and speak by themselves; others show the
+  floating card ("Show me"), or are spoken with "Announce all incidents" on. Only `assistant/bus.js` and
+  the top-bar launcher are in the startup bundle; everything else is a lazy chunk.
+- **Startup bundle:** `src/data/stationConfig.js` imports a build-time *core view* of station_config.json
+  (`virtual:station-config-core`, defined in `vite.config.js`); provenance notes and scene notes come from
+  `src/data/stationConfigDetail.js`, which only lazy pages import. Budget: startup JS < 500 kB.
 - **Alerts** come only from `simulator/alert_engine.py` (run by the tick): every sensor vs station_config
   defaults + `alert_threshold_overrides` (SQLite, set in System Admin). Alerts persist in `station_alerts`,
   are acknowledged by id (`POST /api/alerts/{id}/acknowledge` with `acknowledgedBy`), and auto-resolve after
@@ -77,7 +95,8 @@
 - `ADMIN_TOKEN` set → every **state-changing** route needs `X-Admin-Token`, enforced by the
   one `require_admin` dependency in `unified_backend.py`. Add it to any new POST/PUT/DELETE.
 - Reads and `/ws/station` stay public. The only unprotected POSTs are the ones that change
-  nothing — `/api/simulation/whatif` and the explain routes — which nginx rate-limits instead,
+  nothing — `/api/simulation/whatif`, the explain routes, `/api/assistant/chat` and `/api/assistant/evaluate`
+  (only re-runs the decision engine's assessment, debounced) — which nginx rate-limits instead,
   and the visit beacon `POST /api/visit` (aggregate counts only, `simulator/visits.py`; reading
   them, `GET /api/admin/visits`, needs the token).
 - `simulator.py` authenticates its `/api/sensors/batch` POSTs with the same token.
@@ -124,11 +143,11 @@
 ## Tests and lint
 - One command each: `make test` (pytest + Vitest), `make lint` (ruff + oxlint), `make e2e`.
 - **Python:** `pytest` from the repo root — config in `pyproject.toml` (`testpaths = simulator/tests`).
-  247 tests, offline. Two markers are deselected by default: `ml` (needs
+  505 tests, offline. Two markers are deselected by default: `ml` (needs
   `make setup-ml` for torch + chronos; `make test-ml`) and `slow` (ERA5 walk-forward;
   `make test-slow`). Warnings raised by our own code are errors. `make coverage` reports
   `simulator/` coverage (currently 70%).
-- **Frontend:** `npm test` (Vitest + jsdom, 56 tests). Tests live next to their module as
+- **Frontend:** `npm test` (Vitest + jsdom, 212 tests). Tests live next to their module as
   `*.test.js(x)`; `src/test/setup.js` adds the jest-dom matchers.
 - **E2E:** `npm run test:e2e` (Playwright). `playwright.config.js` starts backend → simulator
   → Vite itself, runs chromium with software WebGL, and writes to a throwaway `DB_PATH` so the

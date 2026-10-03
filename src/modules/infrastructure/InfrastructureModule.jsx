@@ -20,17 +20,19 @@ import { StatusChip } from '../../ui/Status';
 import { STATUS_LABEL } from '../../ui/statusLabels';
 import { MODULES, sectionLabel } from '../../shell/navigation';
 import DependencyMap from './DependencyMap';
+import { useAssistant } from '../../assistant/bus';
 
 const HEALTH = { healthy: 'normal', warning: 'warning', critical: 'critical' };
 const DECIMALS = { rpm: 0, ppm: 0, items: 0, pH: 2, '%': 0, days: 0 };
 
-function BuildingTile({ building, sensors, level, catalog, onOpen }) {
+function BuildingTile({ building, sensors, level, catalog, onOpen, highlighted }) {
   const readings = Object.entries(catalog).filter(([, c]) => c.building === building.id).slice(0, 3);
   return (
-    <Card sx={{ height: '100%' }}>
+    <Card sx={(t) => ({ height: '100%', ...(highlighted ? { outline: `2px solid ${t.vars.palette.primary.main}`, outlineOffset: 2 } : {}) })}>
       <ButtonBase
         onClick={() => onOpen(building.id)}
         data-testid={`building-tile-${building.id}`}
+        data-highlighted={highlighted || undefined}
         aria-label={`${building.name}: ${STATUS_LABEL[level]}. Open details`}
         sx={(t) => ({
           display: 'flex', flexDirection: 'column', alignItems: 'stretch', textAlign: 'left', width: '100%', height: '100%', p: 5, gap: 3,
@@ -43,6 +45,7 @@ function BuildingTile({ building, sensors, level, catalog, onOpen }) {
         <Stack direction="row" sx={{ alignItems: 'flex-start', gap: 2 }}>
           <Box sx={{ flex: 1, minWidth: 0 }}>
             <Typography sx={{ fontWeight: 600, fontSize: 15 }}>{building.name}</Typography>
+            {highlighted && <Typography variant="caption" sx={{ color: 'primary.main', fontWeight: 600, display: 'block' }}>Highlighted by Aurora</Typography>}
             <Typography variant="caption" sx={{ color: 'text.secondary', textTransform: 'capitalize' }}>{building.module}</Typography>
           </Box>
           {level !== 'normal' ? <StatusChip status={level} /> : (
@@ -87,6 +90,8 @@ export default function InfrastructureModule({
   const health = HEALTH[aiHealth] || 'normal';
   const station = stationMeta(activeStation).name;
   const equipmentKind = telemetrySource === 'browser-demo' ? 'SIMULATED' : provenance?.equipment;
+  const hl = useAssistant((s) => s.highlight);
+  const highlighted = new Set(hl?.station === activeStation ? hl.ids : []);
 
   return (
     <Box data-testid="infrastructure-module">
@@ -150,14 +155,15 @@ export default function InfrastructureModule({
         <Typography id="infra-buildings-heading" variant="h2" sx={{ mb: 3 }}>Buildings</Typography>
         <Box data-testid="building-grid" sx={{ display: 'grid', gap: 4, gridTemplateColumns: { xs: 'minmax(0, 1fr)', sm: 'repeat(2, minmax(0, 1fr))', lg: 'repeat(4, minmax(0, 1fr))' } }}>
           {buildings.map((b) => (
-            <BuildingTile key={b.id} building={b} sensors={sensorData[b.id]} level={levelOf(b.id)} catalog={catalog} onOpen={onOpenBuilding} />
+            <BuildingTile key={b.id} building={b} sensors={sensorData[b.id]} level={levelOf(b.id)} catalog={catalog} onOpen={onOpenBuilding} highlighted={highlighted.has(b.id)} />
           ))}
         </Box>
       </Box>
 
       <SectionCard title="Dependency map" subtitle="Which subsystem feeds which, and where a fault would cascade. Select a building for details."
         provenance={<ProvenanceChip kind="MODEL-DERIVED" subject="Cascades" />} testId="infra-dependency">
-        <DependencyMap stationId={activeStation} alerts={alerts} dependencyAlerts={dependencyAlerts} onOpenBuilding={onOpenBuilding} />
+        <DependencyMap stationId={activeStation} alerts={alerts} dependencyAlerts={dependencyAlerts} onOpenBuilding={onOpenBuilding}
+          highlight={hl?.station === activeStation ? hl : null} />
       </SectionCard>
     </Box>
   );

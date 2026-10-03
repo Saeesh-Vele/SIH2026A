@@ -1,25 +1,21 @@
 /* ═══════════════════════════════════════════════════════════════
    Aurora — station configuration (single source of truth)
-   Imports simulator/station_config.json at build time — the same file the
-   backend serves at GET /api/config/stations. Station metadata, buildings,
-   the dependency graph and default alert thresholds all come from here,
-   so the browser demo mode works without the backend.
-   ═══════════════════════════════════════════════════════════════ */
-import CONFIG from '../../simulator/station_config.json';
+   Built from simulator/station_config.json — the same file the backend serves
+   at GET /api/config/stations. Station metadata, buildings, the dependency graph
+   and default alert thresholds all come from here, so the browser demo mode
+   works without the backend.
 
-export const STATION_CONFIG = CONFIG;
+   This module is in the startup bundle, so it imports the file's *core view*
+   (vite.config.js: metadata values, buildings, graph, thresholds; no provenance
+   notes, threshold basis or 3D scene notes). Pages that show those details
+   import src/data/stationConfigDetail.js, which loads the whole file with them.
+   ═══════════════════════════════════════════════════════════════ */
+import CONFIG from 'virtual:station-config-core';
+
 export const STATION_IDS = Object.keys(CONFIG.stations);
 
-/** Plain {key: value} metadata (drops source/confidence notes). */
+/** Plain {key: value} metadata (the source/confidence notes are in stationConfigDetail.js). */
 export function stationMeta(stationId) {
-  const meta = CONFIG.stations[stationId]?.metadata || {};
-  return Object.fromEntries(
-    Object.entries(meta).map(([k, v]) => [k, v && typeof v === 'object' && 'value' in v ? v.value : v]),
-  );
-}
-
-/** Metadata with provenance notes ({value, source, confidence, needsNcporConfirmation}). */
-export function stationMetaDetailed(stationId) {
   return CONFIG.stations[stationId]?.metadata || {};
 }
 
@@ -36,11 +32,6 @@ export function formatCoords(stationId) {
 export function crewLabel(stationId) {
   const n = stationMeta(stationId).personnelWinter;
   return typeof n === 'number' ? `≈ ${n} winter crew` : null;
-}
-
-/** The 3D overview's layout notes: {layout, prevailingWindFromDeg, zones: {id: {physical, source, confidence}}}. */
-export function sceneInfo(stationId) {
-  return CONFIG.stations[stationId]?.scene || null;
 }
 
 export function buildingList(stationId) {
@@ -61,7 +52,7 @@ export function dependencyGraph(stationId) {
   return graph;
 }
 
-/** {sensorId: {building, name, unit, thresholdRange, low?, high?, basis}} */
+/** {sensorId: {building, name, unit, thresholdRange, low?, high?}} (the `basis` text is served by the backend) */
 export function sensorCatalog(stationId) {
   return CONFIG.stations[stationId]?.sensors || {};
 }

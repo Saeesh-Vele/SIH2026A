@@ -1,0 +1,502 @@
+{
+  "schemaVersion": 1,
+  "description": "Aurora assistant: the ONLY UI actions the assistant may trigger. The backend turns these into the LLM's tool schemas and validates every tool call against them (simulator/assistant.py); the frontend validates again and executes them (src/assistant/actions.js). Nothing outside this list can run. stateChanging actions need a confirmation and follow the public-demo / ADMIN_TOKEN rules of the routes they call.",
+  "modules": [
+    "overview",
+    "environmental",
+    "infrastructure",
+    "energy",
+    "logistics",
+    "remote",
+    "simulation",
+    "ai",
+    "reports",
+    "admin"
+  ],
+  "whatIfScenarios": [
+    "extreme_cold",
+    "blizzard",
+    "gen_failure",
+    "battery_failure",
+    "fuel_leak",
+    "comms_outage",
+    "resupply_delay"
+  ],
+  "stories": [
+    "blizzard",
+    "generator",
+    "fuel",
+    "linkloss"
+  ],
+  "demoScenarios": [
+    "generator_failure",
+    "heating_failure",
+    "blizzard",
+    "water_crisis",
+    "co2_spike",
+    "link_loss"
+  ],
+  "alertTabs": [
+    "active",
+    "acknowledged",
+    "history"
+  ],
+  "actions": {
+    "navigate": {
+      "description": "Open a page of the dashboard, optionally at a station.",
+      "args": {
+        "module": {
+          "type": "enum",
+          "of": "modules",
+          "required": true
+        },
+        "station": {
+          "type": "station"
+        }
+      },
+      "stateChanging": false
+    },
+    "switchStation": {
+      "description": "Switch the dashboard to another station.",
+      "args": {
+        "station": {
+          "type": "station",
+          "required": true
+        }
+      },
+      "stateChanging": false
+    },
+    "openBuildingPanel": {
+      "description": "Open the details panel of one building (component) at the current station.",
+      "args": {
+        "id": {
+          "type": "building",
+          "required": true
+        }
+      },
+      "stateChanging": false
+    },
+    "highlightComponents": {
+      "description": "Highlight one or more buildings (components) on the dashboard.",
+      "args": {
+        "ids": {
+          "type": "buildingList",
+          "required": true
+        }
+      },
+      "stateChanging": false
+    },
+    "showDependencyChain": {
+      "description": "Show what depends on a building: highlight it and everything downstream of it in the dependency graph.",
+      "args": {
+        "id": {
+          "type": "building",
+          "required": true
+        }
+      },
+      "stateChanging": false
+    },
+    "openAlertCentre": {
+      "description": "Open the alert centre on one tab.",
+      "args": {
+        "tab": {
+          "type": "enum",
+          "of": "alertTabs"
+        }
+      },
+      "stateChanging": false
+    },
+    "runWhatIf": {
+      "description": "Run a read-only, rule-based what-if scenario against the current snapshot (changes nothing) and show the result.",
+      "args": {
+        "scenario": {
+          "type": "enum",
+          "of": "whatIfScenarios",
+          "required": true
+        },
+        "intensity": {
+          "type": "number",
+          "min": 0.5,
+          "max": 2.0
+        }
+      },
+      "stateChanging": false
+    },
+    "startStory": {
+      "description": "Start a guided story. Stories that run a demo scenario change what every visitor sees, so they need a confirmation.",
+      "args": {
+        "id": {
+          "type": "enum",
+          "of": "stories",
+          "required": true
+        }
+      },
+      "stateChanging": true
+    },
+    "triggerDemoScenario": {
+      "description": "Start a predefined demo fault scenario at a station (shared with every visitor, resets itself). Needs a confirmation.",
+      "args": {
+        "id": {
+          "type": "enum",
+          "of": "demoScenarios",
+          "required": true
+        },
+        "station": {
+          "type": "station"
+        }
+      },
+      "stateChanging": true
+    },
+    "openAiDiagnostics": {
+      "description": "Open the AI diagnostics page (anomaly detector, decision engine, forecasts).",
+      "args": {
+        "station": {
+          "type": "station"
+        }
+      },
+      "stateChanging": false
+    },
+    "stopSpeaking": {
+      "description": "Stop the current spoken reply.",
+      "args": {},
+      "stateChanging": false
+    },
+    "mute": {
+      "description": "Turn Aurora's voice off.",
+      "args": {},
+      "stateChanging": false
+    }
+  },
+  "vocabulary": {
+    "_note": "Phrases each parser maps to an id (lower-case, matched on word boundaries, longest first). UI words only: station names come from station_config.json.",
+    "modules": {
+      "overview": [
+        "overview",
+        "home",
+        "3d view",
+        "3d twin",
+        "station view",
+        "main view"
+      ],
+      "environmental": [
+        "weather",
+        "environment",
+        "environmental",
+        "meteorology"
+      ],
+      "infrastructure": [
+        "infrastructure",
+        "buildings",
+        "dependency map",
+        "dependency graph"
+      ],
+      "energy": [
+        "energy grid",
+        "energy",
+        "power grid",
+        "power page",
+        "electrical grid",
+        "generation page"
+      ],
+      "logistics": [
+        "logistics",
+        "supplies",
+        "inventory",
+        "ledger"
+      ],
+      "remote": [
+        "remote commands",
+        "remote",
+        "commands",
+        "dispatch"
+      ],
+      "simulation": [
+        "what-if",
+        "what if",
+        "whatif",
+        "scenarios page",
+        "simulation"
+      ],
+      "ai": [
+        "ai diagnostics",
+        "diagnostics",
+        "ai page",
+        "anomaly page",
+        "decision engine"
+      ],
+      "reports": [
+        "reports",
+        "report"
+      ],
+      "admin": [
+        "administration",
+        "admin",
+        "settings page",
+        "thresholds"
+      ]
+    },
+    "buildings": {
+      "generator": [
+        "generator shed",
+        "generators",
+        "generator",
+        "gen set",
+        "genset",
+        "diesel generator",
+        "power plant"
+      ],
+      "heating": [
+        "heating zone a",
+        "heating a",
+        "zone a",
+        "main heating",
+        "heating"
+      ],
+      "heatingB": [
+        "heating zone b",
+        "heating b",
+        "zone b"
+      ],
+      "waterTank": [
+        "water treatment",
+        "water tank",
+        "water plant",
+        "water system",
+        "water"
+      ],
+      "commsMast": [
+        "comms tower",
+        "communications tower",
+        "comms mast",
+        "comms",
+        "communications",
+        "satellite link",
+        "antenna",
+        "tower"
+      ],
+      "livingQuarters": [
+        "living quarters",
+        "quarters",
+        "accommodation",
+        "living area",
+        "dormitories"
+      ],
+      "storage": [
+        "logistics store",
+        "storage",
+        "store",
+        "fuel store",
+        "warehouse"
+      ],
+      "lab": [
+        "research lab",
+        "laboratory",
+        "lab",
+        "met station"
+      ]
+    },
+    "sensors": {
+      "gen_power": [
+        "generator power",
+        "generation",
+        "power output",
+        "power"
+      ],
+      "gen_fuel_rate": [
+        "fuel burn",
+        "fuel rate",
+        "burn rate",
+        "fuel consumption"
+      ],
+      "gen_rpm": [
+        "engine speed",
+        "rpm"
+      ],
+      "gen_temp": [
+        "coolant temperature",
+        "coolant",
+        "engine temperature",
+        "generator temperature"
+      ],
+      "heat_a_temp": [
+        "heating supply temperature",
+        "supply temperature"
+      ],
+      "heat_a_flow": [
+        "heating flow",
+        "flow"
+      ],
+      "heat_a_pressure": [
+        "heating pressure",
+        "loop pressure"
+      ],
+      "water_level": [
+        "water level",
+        "tank level"
+      ],
+      "water_ph": [
+        "water ph",
+        "ph"
+      ],
+      "water_temp": [
+        "water temperature"
+      ],
+      "comms_signal": [
+        "signal strength",
+        "satellite signal",
+        "signal"
+      ],
+      "comms_bandwidth": [
+        "bandwidth"
+      ],
+      "comms_uptime": [
+        "uptime"
+      ],
+      "lq_temp": [
+        "indoor temperature",
+        "inside temperature",
+        "room temperature"
+      ],
+      "lq_humidity": [
+        "indoor humidity",
+        "humidity"
+      ],
+      "lq_co2": [
+        "carbon dioxide",
+        "co2",
+        "co₂"
+      ],
+      "store_fuel": [
+        "fuel stock",
+        "fuel store",
+        "fuel level"
+      ],
+      "store_food": [
+        "food"
+      ],
+      "store_spares": [
+        "spare parts",
+        "spares"
+      ],
+      "env_temp": [
+        "outside temperature",
+        "outdoor temperature",
+        "air temperature",
+        "temperature"
+      ],
+      "env_wind": [
+        "wind speed",
+        "wind"
+      ],
+      "env_pressure": [
+        "air pressure",
+        "pressure"
+      ]
+    },
+    "whatIfScenarios": {
+      "extreme_cold": [
+        "extreme cold",
+        "deep cold",
+        "cold snap",
+        "cold spell",
+        "temperature drop"
+      ],
+      "blizzard": [
+        "blizzard",
+        "storm",
+        "snowstorm"
+      ],
+      "gen_failure": [
+        "generator trip",
+        "generator failure",
+        "generator fails",
+        "generator failed",
+        "loses the generator",
+        "lose the generator",
+        "power failure",
+        "power cut"
+      ],
+      "battery_failure": [
+        "battery failure",
+        "battery fault",
+        "ups fault",
+        "ups failure",
+        "battery"
+      ],
+      "fuel_leak": [
+        "fuel leak",
+        "leak"
+      ],
+      "comms_outage": [
+        "link loss",
+        "comms outage",
+        "satellite outage",
+        "lose the link",
+        "loses the link",
+        "communications outage"
+      ],
+      "resupply_delay": [
+        "resupply delay",
+        "delayed resupply",
+        "resupply is late",
+        "ship is late",
+        "resupply"
+      ]
+    },
+    "stories": {
+      "blizzard": [
+        "blizzard story",
+        "blizzard"
+      ],
+      "generator": [
+        "generator story",
+        "generator failure story",
+        "generator"
+      ],
+      "fuel": [
+        "fuel story",
+        "fuel"
+      ],
+      "linkloss": [
+        "link loss story",
+        "link story",
+        "satellite story",
+        "link loss"
+      ]
+    },
+    "demoScenarios": {
+      "generator_failure": [
+        "generator failure",
+        "generator fault",
+        "generator"
+      ],
+      "heating_failure": [
+        "heating failure",
+        "heating fault",
+        "heating"
+      ],
+      "blizzard": [
+        "blizzard",
+        "storm"
+      ],
+      "water_crisis": [
+        "water crisis",
+        "water failure",
+        "water alert",
+        "water"
+      ],
+      "co2_spike": [
+        "co2 spike",
+        "co₂ spike",
+        "carbon dioxide spike",
+        "co2"
+      ],
+      "link_loss": [
+        "link loss",
+        "satellite link loss",
+        "link failure",
+        "link"
+      ]
+    }
+  }
+}

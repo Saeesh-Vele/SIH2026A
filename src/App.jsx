@@ -22,6 +22,7 @@ import { useStationData } from './hooks/useStationData';
 import { useDatabase } from './hooks/useDatabase';
 import { useAdminToken } from './hooks/useAdminToken';
 import { useToast } from './ui/feedbackContext';
+import { askAurora, openAssistant, setAssistant, useAssistant } from './assistant/bus';
 import { TourContext } from './tour/tourContext';
 import { PAGE_TOURS, markTourSeen, readTourParam } from './tour/tourPrefs';
 import { STORY_META, markWelcomeSeen, readStoryParam, welcomeSeen } from './tour/storyMeta';
@@ -56,6 +57,8 @@ const AdminModule = lazy(() => import('./modules/admin/AdminModule'));
 const ReportsModule = lazy(() => import('./modules/reports/ReportsModule'));
 const InfrastructureModule = lazy(() => import('./modules/infrastructure/InfrastructureModule'));
 const EnergyModule = lazy(() => import('./modules/energy/EnergyModule'));
+// Aurora assistant: everything but the launcher and its tiny store (assistant/bus.js) loads here.
+const AssistantHost = lazy(() => import('./assistant/AssistantHost'));
 
 export default function App() {
   const theme = useTheme();
@@ -75,6 +78,9 @@ export default function App() {
   const [selectedBuilding, setSelectedBuilding] = useState(null);
   const [, setHoveredBuilding] = useState(null);   // hover is tracked by the scene; no consumer yet
   const [showTwinInspector, setShowTwinInspector] = useState(false);
+  const [alertTab, setAlertTab] = useState({ tab: 'active', n: 0 });
+  const [whatIfPreset, setWhatIfPreset] = useState(null);
+  const assistantOpen = useAssistant((s) => s.open);
   // Drawers and dialogs: mounted on first open (their chunks load then) and kept mounted
   // so their close transition still runs. `open` is the one that is showing.
   const [open, setOpen] = useState(null);       // 'alerts' | 'link' | 'events' | 'demo' | 'palette' | 'help'
@@ -122,7 +128,7 @@ export default function App() {
   const tourParam = useState(readTourParam)[0];
   const tourStop = useRef(null);
   const live = useRef({});
-  useEffect(() => { live.current = { activeModule, isDesktop, isPhone, scheme, writeProtected, judge, stationData, activeStation }; });
+  useEffect(() => { live.current = { activeModule, isDesktop, isPhone, scheme, writeProtected, judge, stationData, activeStation, selectedBuilding }; });
   // The guided story being played: which one, whether it joined another visitor's
   // scenario, and whether it started one itself (which it then resets).
   const storyRun = useRef(null);
@@ -217,6 +223,7 @@ export default function App() {
     markWelcomeSeen(choice);
     setOpen(null);
     if (choice === 'tour') startTour('main');
+    if (choice === 'aurora') openAssistant();
   }, [startTour]);
   const pageTour = PAGE_TOURS[activeModule] ? activeModule : null;
   const tourValue = useMemo(() => ({ start: startTour, active: tourActive }), [startTour, tourActive]);
@@ -297,6 +304,23 @@ export default function App() {
     setSelectedBuilding(buildingId);
   }, []);
 
+  // ── Aurora assistant: what its action layer may do (assistant/AssistantHost.jsx) ──
+  // The host validates every action against the whitelist first; these are the same
+  // setters the sidebar, switcher and drawers use, so nothing bypasses the normal UI.
+  const assistantControls = useMemo(() => ({
+    get: () => ({ module: live.current.activeModule, station: live.current.activeStation, building: live.current.selectedBuilding }),
+    navigate: (id) => { if (MODULES[id]) handleModuleChange(id); },
+    setStation: (sid) => { if (STATION_IDS.includes(sid) && sid !== live.current.activeStation) handleStationChange(sid); },
+    openBuilding: (id) => openBuilding(id || null),
+    openAlerts: (tab) => { setAlertTab((t) => ({ tab, n: t.n + 1 })); show('alerts'); },
+    closeOverlay: () => setOpen(null),
+    whatIf: (preset) => setWhatIfPreset(preset),
+    startStory: (id) => startStory(id),
+    scrollTo: (testId) => setTimeout(() => {
+      document.querySelector(`[data-testid="${testId}"]`)?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+    }, 450),
+  }), [handleModuleChange, handleStationChange, openBuilding, show, startStory]);
+
   // ── Command palette + shortcuts ───────────────────────────
   const commands = useMemo(() => [
     ...Object.entries(MODULES).map(([id, m]) => ({
@@ -306,6 +330,7 @@ export default function App() {
     ...STATION_IDS.map((sid) => ({
       id: `station-${sid}`, group: 'Station', label: `Switch to ${stationMeta(sid).name}`, keywords: stationMeta(sid).region, run: () => handleStationChange(sid),
     })),
+    { id: 'aurora', group: 'Aurora', label: 'Ask Aurora (the assistant)', keys: ['V'], keywords: 'assistant voice talk speak chat question mic incident help', run: () => openAssistant() },
     { id: 'alerts', group: 'Panels', label: 'Open the alert centre', keywords: 'alarms acknowledge history', run: openAlerts },
     { id: 'link', group: 'Panels', label: 'Satellite link details', keywords: 'connection source telemetry link loss', run: openLink },
     { id: 'events', group: 'Panels', label: 'Open the event log', keywords: 'timeline', run: () => show('events') },
@@ -325,6 +350,7 @@ export default function App() {
   useShortcuts({
     onPalette: () => show('palette'),
     onHelp: () => show('help'),
+    onTalk: (down) => setAssistant({ ptt: down, ...(down ? { open: true } : {}) }),
     onGo: (key) => {
       if (key === NAV_ACTIONS.twinInspector.key) { setShowTwinInspector(true); return true; }
       const id = Object.keys(MODULES).find((m) => MODULES[m].key === key);
@@ -385,7 +411,7 @@ export default function App() {
       case 'simulation':
         return (
           <WhatIfModule activeStation={activeStation} sensorData={stationData.sensors}
-            telemetrySource={telemetryBadge} updatedAt={updatedAt} />
+            telemetrySource={telemetryBadge} updatedAt={updatedAt} preset={whatIfPreset} />
         );
       case 'reports':
         return (
@@ -434,7 +460,8 @@ export default function App() {
 
   return (
     <TourContext.Provider value={tourValue}>
-    <div className="aurora-app" data-tour-active={tourActive || undefined} data-link-down={linkDown || undefined}>
+    <div className="aurora-app" data-tour-active={tourActive || undefined} data-link-down={linkDown || undefined}
+      data-assistant-open={assistantOpen || undefined}>
       {/* First Tab stop: past the top bar and sidebar (about 25 stops) to the page. */}
       <a className="skip-link" href="#main">Skip to content</a>
       <TopBar
@@ -463,6 +490,8 @@ export default function App() {
         onOpenAbout={() => show('about')}
         onOpenWelcome={() => show('welcome')}
         onOpenStories={() => show('stories')}
+        onOpenAssistant={() => openAssistant()}
+        assistantOpen={assistantOpen}
       />
 
       <div className="demo-banner-slot">
@@ -496,6 +525,7 @@ export default function App() {
         />
 
         <main className="main-stage" id="main" tabIndex={-1}>
+          <div id="aurora-highlight-slot" className="highlight-slot" />
           {activeModule === 'overview' ? (
             // The 3D overview and the HUD over it stay dark in both schemes (decision, §9).
             <div className="overview-stage" data-tour="overview" data-color-scheme="dark">
@@ -574,7 +604,7 @@ export default function App() {
       {/* ── Drawers and dialogs (mounted on first open) ── */}
       <Suspense fallback={null}>
         {mounted.alerts && (
-          <AlertCentre open={open === 'alerts'} onClose={close} alerts={activeAlerts} onAlertClick={handleAlertClick}
+          <AlertCentre key={alertTab.n} initialTab={alertTab.tab} open={open === 'alerts'} onClose={close} alerts={activeAlerts} onAlertClick={handleAlertClick}
             onAcknowledge={acknowledgeAlert} activeStation={activeStation} canAcknowledge={dataSource === 'websocket'} />
         )}
         {mounted.link && (
@@ -592,9 +622,20 @@ export default function App() {
         {mounted.events && <EventsDrawer open={open === 'events'} onClose={close} events={eventTimeline} />}
         {mounted.demo && <DemoControlDrawer open={open === 'demo'} onClose={close} activeStation={activeStation}
           publicDemo={stationData.publicDemo} receivedAt={stationData.receivedAt} />}
-        {mounted.palette && <CommandPalette open={open === 'palette'} onClose={close} commands={commands} />}
+        {mounted.palette && <CommandPalette open={open === 'palette'} onClose={close} commands={commands} onAsk={askAurora} />}
         {mounted.help && <ShortcutsDialog open={open === 'help'} onClose={close} onStartTour={() => startTour('main')} />}
       </Suspense>
+
+      {/* Aurora assistant: loads after the first snapshot (or when first opened). */}
+      {(updatedAt != null || assistantOpen) && (
+        <ErrorBoundary name="Aurora assistant">
+          <Suspense fallback={null}>
+            <AssistantHost stationData={stationData} activeStation={activeStation} activeModule={activeModule}
+              controls={assistantControls} canRunScenarios={canRunScenarios} tourActive={tourActive} isPhone={isPhone}
+              writeProtected={writeProtected} />
+          </Suspense>
+        </ErrorBoundary>
+      )}
     </div>
     </TourContext.Provider>
   );

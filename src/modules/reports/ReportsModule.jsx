@@ -18,7 +18,8 @@ import {
 import DownloadOutlined from '@mui/icons-material/DownloadOutlined';
 import PrintOutlined from '@mui/icons-material/PrintOutlined';
 import { apiGet } from '../../services/api';
-import { crewLabel, formatCoords, STATION_IDS, stationMeta, stationMetaDetailed } from '../../data/stationConfig';
+import { crewLabel, formatCoords, STATION_IDS, stationMeta } from '../../data/stationConfig';
+import { stationMetaDetailed } from '../../data/stationConfigDetail';
 import { formatDateTimeIST, formatNumber, formatValue, isNum } from '../../lib/format';
 import { FROSTBITE_SOURCE } from '../../lib/windChill';
 import PageHeader from '../../ui/PageHeader';

@@ -145,3 +145,11 @@
   font-size: 11px; font-weight: 600; line-height: 18px; color: var(--aur-palette-text-secondary);
   border: 1px solid var(--aur-palette-divider); background: var(--aur-palette-background-paper);
 }
+
+/* ── Aurora assistant ───────────────────────────────────────
+   The panel is non-modal: from 1200 px the page makes room for it instead of being
+   covered, so pages Aurora opens and highlights stay visible beside the conversation. */
+.highlight-slot:empty { display: none; }
+@media (min-width: 1200px) {
+  .aurora-app[data-assistant-open] .app-layout-body { margin-right: 400px; }
+}

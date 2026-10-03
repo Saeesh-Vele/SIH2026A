@@ -50,7 +50,7 @@ function edgePath(a, b) {
   return `M${x1} ${y1}C${mx} ${y1} ${mx} ${y2} ${x2} ${y2}`;
 }
 
-export default function DependencyMap({ stationId, alerts = {}, dependencyAlerts = [], onOpenBuilding }) {
+export default function DependencyMap({ stationId, alerts = {}, dependencyAlerts = [], onOpenBuilding, highlight = null }) {
   const theme = useTheme();
   // Phones get the same left-to-right map at its natural size, scrolled sideways: scaling it
   // down to 360 px made the labels unreadable. The list below carries the same information.
@@ -71,6 +71,9 @@ export default function DependencyMap({ stationId, alerts = {}, dependencyAlerts
     }
   });
   const levelOf = (id) => (alerts[id] === 'critical' || alerts[id] === 'warning' ? alerts[id] : 'normal');
+  // Aurora's highlight: the components, and (for a dependency chain) the edges between them.
+  const lit = new Set(highlight?.ids || []);
+  const litEdge = (e) => Boolean(highlight?.chainFrom) && lit.has(e.source) && lit.has(e.target) && e.target !== highlight.chainFrom;
   const relations = [...new Set(edges.map((e) => e.relation))];
 
   return (
@@ -78,6 +81,7 @@ export default function DependencyMap({ stationId, alerts = {}, dependencyAlerts
       <ChartLegend items={[
         ...relations.map((r) => ({ label: r, color: chart.labelFill, width: 1.5, dash: RELATION_DASH[r] ?? undefined })),
         { label: 'cascade risk', color: chart.status.warning, width: 2 },
+        ...(lit.size ? [{ label: 'highlighted by Aurora', color: chart.accent, width: 2, dash: '5 3' }] : []),
       ]} />
       {narrow && <Typography variant="caption" component="p" sx={{ color: 'text.secondary', m: 0 }}>Scroll sideways to see the whole map.</Typography>}
       <Box sx={{ overflowX: 'auto', py: 1 }} tabIndex={narrow ? 0 : undefined} role={narrow ? 'region' : undefined} aria-label={narrow ? 'Dependency map, scrollable' : undefined}>
@@ -107,12 +111,13 @@ export default function DependencyMap({ stationId, alerts = {}, dependencyAlerts
             const b = pos[e.target];
             if (!a || !b) return null;
             const sev = cascade.get(`${e.source}>${e.target}`);
-            const dim = focus && focus !== e.source && focus !== e.target;
+            const dim = (focus && focus !== e.source && focus !== e.target) || (lit.size > 0 && !litEdge(e) && !sev);
+            const on = litEdge(e);
             return (
               <path key={`${e.source}-${e.target}`} d={edgePath(a, b)} fill="none"
-                stroke={sev ? chart.status[sev] : chart.labelFill} strokeWidth={sev ? 2.25 : 1.5}
-                strokeOpacity={dim ? 0.15 : sev ? 1 : 0.7} strokeDasharray={RELATION_DASH[e.relation] ?? undefined}
-                markerEnd={`url(#dep-arrow-${sev || 'normal'})`} data-cascade={sev || undefined} />
+                stroke={sev ? chart.status[sev] : on ? chart.accent : chart.labelFill} strokeWidth={sev || on ? 2.25 : 1.5}
+                strokeOpacity={dim ? 0.15 : sev || on ? 1 : 0.7} strokeDasharray={RELATION_DASH[e.relation] ?? undefined}
+                markerEnd={`url(#dep-arrow-${sev || 'normal'})`} data-cascade={sev || undefined} data-highlighted={on || undefined} />
             );
           })}
           {buildings.map((b) => {
@@ -121,11 +126,13 @@ export default function DependencyMap({ stationId, alerts = {}, dependencyAlerts
             return (
               <g key={b.id} className="node" role="button" tabIndex={0} transform={`translate(${p.x} ${p.y})`}
                 aria-label={`${b.name}: ${STATUS_LABEL[lvl]}. Open details`}
-                data-testid={`dep-node-${b.id}`} data-status={lvl}
+                data-testid={`dep-node-${b.id}`} data-status={lvl} data-highlighted={lit.has(b.id) || undefined}
                 onMouseEnter={() => setFocus(b.id)} onMouseLeave={() => setFocus(null)}
                 onFocus={() => setFocus(b.id)} onBlur={() => setFocus(null)}
                 onClick={() => onOpenBuilding?.(b.id)}
                 onKeyDown={(ev) => { if (ev.key === 'Enter' || ev.key === ' ') { ev.preventDefault(); onOpenBuilding?.(b.id); } }}>
+                {lit.has(b.id) && <rect x={-5} y={-5} width={NODE_W + 10} height={NODE_H + 10} rx={14} fill="none"
+                  stroke={chart.accent} strokeWidth={2} strokeDasharray="5 3" />}
                 <rect width={NODE_W} height={NODE_H} rx={10}
                   style={lvl !== 'normal' ? { stroke: chart.status[lvl], strokeWidth: 2 } : undefined} />
                 <circle cx={16} cy={NODE_H / 2} r={5} fill={chart.status[lvl]} />

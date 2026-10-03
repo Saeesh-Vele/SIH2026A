@@ -46,11 +46,11 @@ function AlertItem({ a, now, onOpen, action }) {
   );
 }
 
-export default function AlertCentre({ open, onClose, alerts = [], onAlertClick, onAcknowledge, activeStation, canAcknowledge = true }) {
+export default function AlertCentre({ open, onClose, alerts = [], onAlertClick, onAcknowledge, activeStation, canAcknowledge = true, initialTab = 'active' }) {
   const now = useNow(15000);
   const confirm = useConfirm();
   const toast = useToast();
-  const [tab, setTab] = useState('active');
+  const [tab, setTab] = useState(initialTab);
   const [history, setHistory] = useState({ key: null, rows: null, error: null });
   const [pending, setPending] = useState(null);
 

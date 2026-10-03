@@ -2,7 +2,7 @@
    Aurora — Overview HUD over the 3D twin (design system, dark in both modes).
 
    - Station card: name, coordinates, region and station facts from
-     station_config.json; the Twin Inspector and the voice assistant.
+     station_config.json; the Twin Inspector and Ask Aurora (the assistant).
    - KPI bento: outside temperature as the hero (30-min sparkline, delta vs
      15 min ago, wind chill), then wind, generation and subsystem status.
      Values are live telemetry; history is the backend's rolling window.
@@ -11,7 +11,7 @@
    3D twin); below lg it sits in normal flow under a fixed-height scene (App.css)
    and follows the active colour scheme, like any page.
    ═══════════════════════════════════════════════════════════════ */
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useRef } from 'react';
 import { Box, Button, Card, Stack, Typography, useMediaQuery } from '@mui/material';
 import { useColorScheme, useTheme } from '@mui/material/styles';
 import ArrowForwardOutlined from '@mui/icons-material/ArrowForwardOutlined';
@@ -19,7 +19,7 @@ import MicNoneOutlined from '@mui/icons-material/MicNoneOutlined';
 import ScienceOutlined from '@mui/icons-material/ScienceOutlined';
 import PlaceOutlined from '@mui/icons-material/PlaceOutlined';
 import ViewInArOutlined from '@mui/icons-material/ViewInArOutlined';
-import { apiPost } from '../services/api';
+import { openAssistant } from '../assistant/bus';
 import { crewLabel, formatCoords, stationMeta } from '../data/stationConfig';
 import { useSeries, valueAgo } from '../hooks/useSeries';
 import { onModelClock } from '../lib/modelClock';
@@ -127,117 +127,6 @@ export default function OverviewHUD({
   const envKind = provenance?.environment;
   const envLabel = envKind ? (PROVENANCE[envKind]?.label ?? envKind) : null;
 
-  const [isVoiceMode, setIsVoiceMode] = useState(false);
-  const [isSpeaking, setIsSpeaking] = useState(false);
-
-  // We need a ref to hold the recognition instance so we can stop/start it
-  const [recognition, setRecognition] = useState(null);
-
-  const speak = (text) => {
-    return new Promise((resolve) => {
-      setIsSpeaking(true);
-      window.speechSynthesis.cancel();
-      // Clean up markdown
-      const cleanText = text.replace(/[*#_]/g, '').replace(/\[.*\]/g, '');
-      const utterance = new SpeechSynthesisUtterance(cleanText);
-      const voices = window.speechSynthesis.getVoices();
-      const preferredVoice = voices.find(v => v.name.includes('Daniel') || v.name.includes('UK English Male') || v.name.includes('Google UK English Male'))
-        || voices.find(v => v.lang === 'en-GB' || v.lang === 'en-US');
-      if (preferredVoice) utterance.voice = preferredVoice;
-
-      utterance.rate = 1.1; // slightly brisk, still clear
-      utterance.pitch = 0.9;
-
-      utterance.onend = () => {
-        setIsSpeaking(false);
-        resolve();
-      };
-      utterance.onerror = () => {
-        setIsSpeaking(false);
-        resolve();
-      };
-      window.speechSynthesis.speak(utterance);
-    });
-  };
-
-  const processQuery = async (queryText) => {
-    // If it's just a greeting
-    if (queryText.toLowerCase().trim() === 'hello aurora' || queryText.toLowerCase().trim() === 'aurora') {
-      await speak("Yes, Commander. I am online and monitoring all station telemetry. How can I assist?");
-      return;
-    }
-
-    // Send only the user's question; the backend grounds the answer in the
-    // current decision JSON (Groq LLM, or an offline summary without one).
-    try {
-      const d = await apiPost('/aurora-explain', { station: activeStation, freeText: queryText, question: 'free' }, { timeoutMs: 25000 });
-      const ans = d?.explanation || 'No answer returned.';
-      await speak(d?.llmAvailable === false ? `Offline summary. ${ans}` : ans);
-    } catch (e) {
-      console.error('[Voice] aurora-explain failed', e);
-      await speak(e?.kind === 'http'
-        ? `The backend returned an error, status ${e.status}.`
-        : 'The backend is unreachable.');
-    }
-  };
-
-  const toggleVoiceMode = () => {
-    if (isVoiceMode) {
-      // Turn OFF
-      if (recognition) {
-        recognition.onend = null;
-        recognition.stop();
-      }
-      window.speechSynthesis.cancel();
-      setIsVoiceMode(false);
-      setIsSpeaking(false);
-    } else {
-      // Turn ON
-      const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
-      if (!SpeechRecognition) {
-        alert("Your browser doesn't support Web Speech API.");
-        return;
-      }
-      const rec = new SpeechRecognition();
-      rec.continuous = true;
-      rec.interimResults = false;
-
-      rec.onresult = async (event) => {
-        // Only process the latest final result
-        const last = event.results.length - 1;
-        if (event.results[last].isFinal) {
-          const transcript = event.results[last][0].transcript.trim();
-          console.log("[Voice] heard:", transcript);
-
-          // Conversational mode: while the voice assistant is on, every utterance is processed.
-          // Pause recognition while speaking so it doesn't hear itself
-          rec.stop();
-          await processQuery(transcript);
-
-          // Restart listening after speaking if the voice assistant is still on
-          // Note: state might be stale here, but rec.onend will handle restart
-        }
-      };
-
-      rec.onerror = (e) => console.warn('[Voice] microphone error:', e.error);
-
-      rec.onend = () => {
-        // If mode is still true, restart listening (continuous mode often stops on silence)
-        // We use a small timeout to avoid thrashing
-        setTimeout(() => {
-          if (document.querySelector('.btn-hud-voice.listening') && !document.querySelector('.btn-hud-voice .pulse-icon.speaking')) {
-            try { rec.start(); } catch (e) { console.warn('[Voice] could not restart recognition', e); }
-          }
-        }, 300);
-      };
-
-      setRecognition(rec);
-      rec.start();
-      setIsVoiceMode(true);
-      speak("Voice assistant on. Say 'Hello Aurora' or ask your question directly.");
-    }
-  };
-
   // Subsystem status from the backend's per-building alert levels.
   const levels = Object.entries(alerts).filter(([k]) => k !== 'overall').map(([, v]) => v);
   const criticalCount = levels.filter((a) => a === 'critical').length;
@@ -304,16 +193,9 @@ export default function OverviewHUD({
               Twin Inspector
             </Button>
           )}
-          <Button
-            variant="outlined"
-            className={`btn-hud-voice ${isVoiceMode ? 'listening' : ''}`}
-            onClick={toggleVoiceMode}
-            aria-pressed={isVoiceMode}
-            title="Turn the voice assistant on or off (continuous listening)"
-            startIcon={<MicNoneOutlined className={isVoiceMode ? 'pulse-icon' : ''} />}
-            sx={isVoiceMode ? { borderColor: 'primary.main', color: 'primary.main' } : undefined}
-          >
-            {isVoiceMode ? (isSpeaking ? 'Speaking…' : 'Listening…') : 'Voice assistant'}
+          <Button variant="outlined" onClick={() => openAssistant()} startIcon={<MicNoneOutlined />} data-testid="hud-ask-aurora"
+            title="Ask Aurora: voice or text, answers from the station data">
+            Ask Aurora
           </Button>
         </Stack>
       </Card>

@@ -35,7 +35,7 @@ export default function HelpMenu({ anchorEl, onClose, onStartTour, pageTourLabel
       )}
       <MenuItem onClick={pick(onStartTour)} data-testid="help-tour">
         <ListItemIcon><TourOutlined fontSize="small" /></ListItemIcon>
-        <ListItemText primary="Take the tour" secondary="12 steps, about a minute" />
+        <ListItemText primary="Take the tour" secondary="13 steps, about a minute" />
       </MenuItem>
       {pageTourLabel && (
         <MenuItem onClick={pick(onStartPageTour)} data-testid="help-page-tour">

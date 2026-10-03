@@ -10,10 +10,17 @@ import SearchOutlined from '@mui/icons-material/SearchOutlined';
 import { matchCommand } from './commandMatch';
 import Keys from '../ui/Keys';
 
-export default function CommandPalette({ open, onClose, commands }) {
+export default function CommandPalette({ open, onClose, commands, onAsk }) {
   const [query, setQuery] = useState('');
   const [index, setIndex] = useState(0);
-  const items = useMemo(() => commands.filter((c) => matchCommand(c, query)), [commands, query]);
+  // Anything typed can also go to Aurora, the assistant (last, so commands win on Enter).
+  const items = useMemo(() => {
+    const found = commands.filter((c) => matchCommand(c, query));
+    const q = query.trim();
+    return onAsk && q.length > 2
+      ? [...found, { id: 'ask-aurora', group: 'Aurora', label: `Ask Aurora: “${q}”`, run: () => onAsk(q) }]
+      : found;
+  }, [commands, query, onAsk]);
   const sel = Math.min(index, Math.max(items.length - 1, 0));
 
   const run = (cmd) => { onClose(); setQuery(''); setIndex(0); cmd.run(); };

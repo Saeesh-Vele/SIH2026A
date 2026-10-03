@@ -1,5 +1,38 @@
 # Changelog
 
+## Aurora assistant — 2026-10-03 (PR #11)
+
+Replaces the overview's continuous-listening "Voice assistant" with **Aurora**, a voice + text
+operator assistant. Design, checkpoint screenshots and transcripts: `docs/assistant/`.
+
+- **Action layer.** Twelve whitelisted UI actions (`simulator/assistant_actions.json`), validated
+  by the backend for LLM tool calls and again in the browser. Each run shows a chip, with Undo where
+  it makes sense. `startStory` and `triggerDemoScenario` are confirmed by click or voice and use the
+  normal routes, so the public-demo and token rules are unchanged.
+- **Grounded answers.** Answers come only from `GET /api/assistant/context`: telemetry with
+  provenance, alerts, the anomaly detector, the decision engine and its audit trail, the dependency
+  graph and cascades, and the replay time. An LLM reply quoting a number that isn't in the context
+  is replaced by the deterministic answer.
+- **LLM optional.** Common commands are parsed in the browser and lookups answered from data.
+  Groq `openai/gpt-oss-20b` routes unrecognised requests to tools, and `openai/gpt-oss-120b` phrases
+  explanations, both via the simulator's `/api/llm/chat` with their own caps. Without Groq, Aurora
+  answers "from station data only".
+- **Voice.** Web Speech API push-to-talk (mic button or hold V), conversation mode, live captions,
+  text fallback where recognition is missing (Firefox), a privacy note, and optional Hindi.
+- **Incident mode.** Eight example playbooks (`simulator/playbooks.json`, not official NCPOR
+  procedures). New critical alerts, link loss or a serious anomaly open an incident card: what failed,
+  a labelled likely cause, affected systems, risk and a checklist.
+  - The risk is never stated below the playbook's baseline, and opening an incident asks the decision
+    engine to re-evaluate.
+  - The visitor's own incidents open the page, highlight the dependency chain and are spoken. Other
+    visitors' incidents show a floating card with "Show me".
+  - Updates are debounced to one spoken update per 20 s unless the risk escalates. A summary follows
+    on resolution.
+- **Integration.** "Ask Aurora" on the welcome card, a tour step, the command palette (including
+  "Ask Aurora: …" for any typed text) and the shortcuts dialog.
+- **Startup JS 495.8 → 482.8 kB:** the startup station config is a build-time core view. Groq's
+  daily explanation cap went from 120 to 100.
+
 ## UI redesign — 2026-10-02 (phases 1A → 1C, PR #1)
 
 The whole frontend was rebuilt on one design system. The 3D scene itself is unchanged.

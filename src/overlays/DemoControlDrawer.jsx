@@ -27,6 +27,7 @@ import WriteButton from '../ui/WriteButton';
 import { useAdminToken } from '../hooks/useAdminToken';
 import { useConfirm, useToast } from '../ui/feedbackContext';
 import SideSheet from './SideSheet';
+import { noteOwnScenario } from '../assistant/bus';
 
 function targetText(stationId, targets = {}) {
   const cat = sensorCatalog(stationId);
@@ -87,6 +88,7 @@ export default function DemoControlDrawer({ open, onClose, activeStation, public
     setBusy(id);
     try {
       await apiPost(`/sim/inject/${id}?stationId=${activeStation}`);
+      noteOwnScenario(activeStation, id);
       toast({ text: sc.kind === 'link'
         ? `${name}'s link is down (simulated): watch the readings waiting on site grow. It comes back in ${minutes} minutes.`
         : visitor

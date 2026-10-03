@@ -3,7 +3,7 @@
 
    Welcome: what the problem is, what Aurora does, what is real and what is
    simulated, then three choices: Play a scenario (the story list), Take the
-   tour, Explore on my own. Shown once on a first visit; reopened from Help.
+   tour, Ask Aurora, Explore on my own. Shown once on a first visit; reopened from Help.
 
    Stories: the guided stories with their availability. Scenario stories share
    the station's public demo slot; when another scenario is running there the
@@ -15,6 +15,7 @@ import CloseOutlined from '@mui/icons-material/CloseOutlined';
 import ExploreOutlined from '@mui/icons-material/ExploreOutlined';
 import PlayCircleOutlineOutlined from '@mui/icons-material/PlayCircleOutlineOutlined';
 import TourOutlined from '@mui/icons-material/TourOutlined';
+import MicNoneOutlined from '@mui/icons-material/MicNoneOutlined';
 import { STORIES, STORY_IDS } from '../tour/stories';
 import { storyAvailability } from '../tour/storyRuntime';
 import { stationMeta } from '../data/stationConfig';
@@ -72,8 +73,11 @@ export default function WelcomeDialog({ open, view = 'welcome', onView, onClose,
               <Choice primary icon={<PlayCircleOutlineOutlined />} title="Play a scenario" testId="welcome-play"
                 text="A guided two-minute story: a blizzard at Maitri, a generator failure or a satellite link drop at Bharati, or running low on fuel."
                 onClick={() => onView('stories')} />
+              <Choice icon={<MicNoneOutlined />} title="Ask Aurora" testId="welcome-aurora"
+                text="Talk or type to the station assistant: “What happens if there's a blizzard at Maitri?” It answers from the station's data and can open pages for you."
+                onClick={() => onChoose('aurora')} />
               <Choice icon={<TourOutlined />} title="Take the tour" testId="welcome-tour"
-                text="A quick walk through each part of the screen, in 12 short steps." onClick={() => onChoose('tour')} />
+                text="A quick walk through each part of the screen, in 13 short steps." onClick={() => onChoose('tour')} />
               <Choice icon={<ExploreOutlined />} title="Explore on my own" testId="welcome-explore"
                 text="Everything is open to try. Your changes are private to you and reset after an hour." onClick={() => onChoose('explore')} />
             </Stack>

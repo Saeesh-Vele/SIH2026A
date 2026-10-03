@@ -25,8 +25,14 @@ export default function FeedbackProvider({ children }) {
     setQueue((q) => [...q, { severity: 'success', ...t, id: idRef.current }]);
     setToastOpen(true);
   }, []);
-  const confirm = useCallback((opts) => new Promise((resolve) => { setUsed(true); setAsk({ ...opts, resolve }); }), []);
-  const answer = (v) => { ask?.resolve(v); setAsk(null); };
+  // `bind(settle)` hands the caller a way to answer too (Aurora: "yes" / "no" by voice).
+  const confirm = useCallback((opts) => new Promise((resolve) => {
+    setUsed(true);
+    const settle = (v) => { resolve(v); setAsk((cur) => (cur?.resolve === settle ? null : cur)); };
+    setAsk({ ...opts, resolve: settle });
+    opts?.bind?.(settle);
+  }), []);
+  const answer = (v) => { ask?.resolve(v); };
 
   return (
     <ToastContext.Provider value={toast}>
