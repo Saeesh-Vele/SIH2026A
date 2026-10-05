@@ -18,14 +18,35 @@ in operator language — tracking the provenance of every number it shows.
 
 ---
 
+**Live demo:** <https://aurora-sih.centralindia.cloudapp.azure.com>
+
 ## The interface
 
 | | |
 |---|---|
-| ![Station overview: the 3D twin with weather, power and subsystem cards](docs/ui-redesign/1b-1/dark-desktop-overview.png) | ![Infrastructure in light mode: building tiles and the dependency map](docs/ui-redesign/1b-1/light-desktop-infrastructure.png) |
-| **Overview.** The 3D twin, with weather, generation and subsystem cards. Building colours follow the alert state. | **Infrastructure.** Building telemetry and the dependency map. Light and dark themes throughout. |
-| ![What-if result: baseline vs scenario, consequences and assumptions](docs/ui-redesign/1b-2/dark-desktop-whatif-result.png) | ![The guided tour pointing at Demo control](docs/ui-redesign/1c/tour-light-desktop-step11.png) |
-| **What-if.** A rule-based hazard applied to the current snapshot, with its assumptions. | **Guided tour.** 12 steps on a first visit; restart it from Help (?) or the command palette. |
+| ![Maitri station 3D twin in daylight](docs/phase2/final/live-deployed-maitri.png) | ![Antarctica overview with both stations](docs/phase2/final/live-deployed-antarctica.png) |
+| **3D twin.** Maitri with day/night lighting and live weather; building colours follow the alert state. | **Antarctica view.** Fly between Maitri and Bharati from the continent map. |
+| ![Building panel with live telemetry](docs/phase2/final/live-deployed-building-panel.png) | ![Maitri during a blizzard](docs/phase2/final/maitri-windy-blizzard.png) |
+| **Building panel.** Click a building for its telemetry and dependencies. | **Weather in the scene.** Wind, snow and blizzards from the replayed weather. |
+| ![Ask Aurora assistant welcome](docs/assistant/final/welcome-ask-aurora-1440.png) | ![Incident card with playbook risk](docs/assistant/final/own-incident-risk-floor-1440.png) |
+| **Aurora assistant.** Voice + text, answers grounded in live station data. | **Incidents.** Example playbooks, risk never below the playbook baseline. |
+| ![Try a demo stories and banner](docs/judge-mode/checkpoint/try-a-demo-and-banner-desktop.png) | ![Phone view of Bharati at night](docs/phase2/final/phone-bharati-night.png) |
+| **Try a demo.** Guided stories (blizzard, link loss…) safe for public visitors. | **Phones.** Every page works at phone width. |
+
+### What's new
+
+- **Aurora assistant** — voice and text operator assistant. Common commands run in the
+  browser; other questions go to Groq with whitelisted actions only, and any answer quoting a
+  number not in the live context is replaced by a deterministic one.
+- **NCPOR live sync** — the backend fetches NCPOR's automatic weather station pages on a
+  schedule; implausible values are flagged `suspect` and excluded. `GET /api/ncpor/status`
+  reports freshness.
+- **Simulated satellite link** — when a station's link drops, readings are buffered at the
+  station and back-filled in order on restore, with alerts at their real time.
+- **Demo stories & sandbox** — visitors can run scenarios (blizzard, link loss…) without
+  admin rights; state-changing actions still need the operator token.
+- **Server-side alert engine** — every sensor checked against `station_config.json`
+  thresholds plus operator overrides; alerts persist, are acknowledged by id and auto-resolve.
 
 - **One top bar.** Station switcher, data source (live simulator / physics fallback / browser
   demo), telemetry link, alerts, event log, search (⌘K), help, Demo control and **Sign in**,
@@ -173,6 +194,9 @@ flowchart TB
 | **Decision support** | Rule-based risk scoring, causal chain, recommended action with confidence | 🟠 Experimental. Weights are prototypes, thresholds are **not** certified |
 | | Explanations in operator language | 🟢 Offline explainer always available; Groq LLM when `GROQ_API_KEY` is set |
 | | What-if scenarios (7), read-only against the published snapshot | 🟢 Working |
+| | Aurora voice/text assistant with grounded answers and incident playbooks | 🟢 Working. Playbooks are **examples**, not official procedures |
+| **Real data** | NCPOR AWS live sync with suspect-value filtering | 🟢 Working |
+| | Simulated satellite link loss with station-side buffering | 🟢 Working |
 | | Remote command dispatch | 🟡 **Simulated** lifecycle only — nothing is actuated |
 | **Logistics** | Operator-entered inventory ledger with an audit log | 🟢 Working |
 | **Operations** | Single-command Docker deploy, multi-arch images, HTTPS overlay, works offline | 🟢 Working |
